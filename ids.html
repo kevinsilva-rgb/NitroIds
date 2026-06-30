@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Buscador Nitro</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .loader {
+      border-top-color: #10b981;
+      animation: spinner 1.5s linear infinite;
+    }
+    @keyframes spinner {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body class="bg-[#0f172a] font-sans min-h-screen text-slate-200">
+
+  <div class="max-w-xl mx-auto pt-12 px-4 pb-6">
+    
+    <div class="text-center mb-8">
+      <h1 class="text-2xl font-bold text-white tracking-wide flex justify-center items-center gap-2">
+        🚀 Buscador de Órdenes Nitro
+      </h1>
+      <p class="text-xs text-slate-400 mt-1 uppercase tracking-widest">Consulta Coincidencias desde GitHub</p>
+    </div>
+
+    <div class="bg-[#1e293b] p-6 rounded-2xl shadow-xl border border-slate-700 mb-6">
+      <div class="flex flex-col gap-2">
+        <label for="txtExternalId" class="text-xs font-bold uppercase tracking-wider text-blue-400">Ingresar Numero de Albaran u Orden de Compra</label>
+        <div class="flex gap-2">
+          <input type="text" id="txtExternalId" placeholder="Ej: 14212974" 
+                 class="flex-1 px-4 py-3 bg-[#0f172a] border border-slate-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all font-medium text-white placeholder-slate-500">
+          <button onclick="ejecutarBusqueda()" id="btnBuscar"
+                  class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center">
+            Buscar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="divLoading" class="hidden text-center py-8">
+      <div class="loader ease-linear rounded-full border-4 border-t-4 border-slate-700 h-10 w-10 mx-auto mb-3"></div>
+      <p class="text-xs font-medium text-slate-400 tracking-wide">Buscando coincidencias en la base de datos...</p>
+    </div>
+
+    <div id="divError" class="hidden bg-red-950/40 border border-red-800/60 p-4 rounded-xl text-red-400 text-sm font-medium mb-6 text-center shadow-lg"></div>
+
+    <div id="lblContador" class="hidden text-xs text-slate-400 font-bold uppercase tracking-wider mb-3 px-1"></div>
+
+    <div id="contenedorResultados" class="flex flex-col gap-6"></div>
+
+  </div>
+
+  <script>
+    // 🔗 !!! REEMPLAZA ESTA URL CON TU URL DE MACRO DE GOOGLE APPS SCRIPT !!!
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyar0C3avos5tH4S5lte-Bjc00aAhp0dnqE0X2YIXPPOdolUEZrvJylodQ9q_cJC7Vhaw/exec";
+
+    document.getElementById('txtExternalId').addEventListener('keypress', function (e) {
+      if (e.key === 'Enter') ejecutarBusqueda();
+    });
+
+    function ejecutarBusqueda() {
+      var idInput = document.getElementById('txtExternalId').value.trim();
+      
+      document.getElementById('divError').classList.add('hidden');
+      document.getElementById('lblContador').classList.add('hidden');
+      document.getElementById('contenedorResultados').innerHTML = '';
+      
+      if (!idInput) {
+        mostrarError("Por favor, ingresa un término de búsqueda.");
+        return;
+      }
+      
+      document.getElementById('divLoading').classList.remove('hidden');
+      
+      // Nueva lógica mediante consulta fetch (API REST) externa
+      fetch(`${WEB_APP_URL}?externalId=${encodeURIComponent(idInput)}`)
+        .then(response => response.json())
+        .then(response => {
+          document.getElementById('divLoading').classList.add('hidden');
+          if (response.error) {
+            mostrarError(response.mensaje);
+          } else {
+            mostrarMultiplesDatos(response.data);
+          }
+        })
+        .catch(err => {
+          document.getElementById('divLoading').classList.add('hidden');
+          mostrarError("Error al conectar con la base de datos de Google Sheets.");
+          console.error(err);
+        });
+    }
+
+    function mostrarError(msg) {
+      var div = document.getElementById('divError');
+      div.innerText = msg;
+      div.classList.remove('hidden');
+    }
+
+    function mostrarMultiplesDatos(listaOrdenes) {
+      var contenedor = document.getElementById('contenedorResultados');
+      var contador = document.getElementById('lblContador');
+      
+      contador.innerText = `Registros encontrados: ${listaOrdenes.length}`;
+      contador.classList.remove('hidden');
+
+      listaOrdenes.forEach(function(data, index) {
+        var estadoTxt = data.estadoPo.toString().toUpperCase();
+        var estadoClases = "bg-amber-500/10 text-amber-400 border border-amber-500/30";
+        if (estadoTxt.includes("SENT") || estadoTxt.includes("DELIVERY")) {
+          estadoClases = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30";
+        } else if (estadoTxt.includes("CANCEL")) {
+          estadoClases = "bg-red-500/10 text-red-400 border border-red-500/30";
+        }
+
+        var htmlTarjeta = `
+          <div class="bg-[#1e293b] rounded-2xl shadow-2xl border border-slate-700 overflow-hidden">
+            <div class="bg-[#0f172a] px-6 py-4 border-b border-slate-700 flex justify-between items-center">
+              <div>
+                <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">External ID</span>
+                <h2 class="text-lg font-bold font-mono text-blue-400">${data.externalId}</h2>
+              </div>
+              <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${estadoClases}">${estadoTxt}</span>
+            </div>
+            
+            <div class="p-6 grid grid-cols-1 gap-5">
+              <div class="border-b border-slate-700/60 pb-3 flex justify-between items-end">
+                <div>
+                  <span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">ID Nitro (PO_ID)</span>
+                  <span id="resIdNitro_${index}" class="text-lg font-extrabold text-emerald-400 font-mono tracking-wide drop-shadow-[0_0_6px_rgba(16,185,129,0.2)]">${data.idNitro}</span>
+                </div>
+                <button onclick="copiarIdNitroCualquiera('${data.idNitro}', 'btnCopiar_${index}', 'txtCopiar_${index}')" id="btnCopiar_${index}" 
+                        class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5">
+                  <span id="txtCopiar_${index}">Copiar</span>
+                </button>
+              </div>
+              
+              <div class="border-b border-slate-700/60 pb-3">
+                <span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">Tienda Destino</span>
+                <span class="text-base font-bold text-white">${data.tienda}</span>
+              </div>
+              
+              <div class="grid grid-cols-2 gap-4 pt-1">
+                <div class="bg-[#0f172a]/60 p-4 rounded-xl border border-blue-900/30">
+                  <span class="text-[10px] font-semibold text-blue-400 block uppercase tracking-wider">Cant. Solicitada</span>
+                  <span class="text-xl font-extrabold text-blue-300">${data.cantidadSolicitada}</span>
+                </div>
+                <div class="bg-[#0f172a]/60 p-4 rounded-xl border border-emerald-900/30">
+                  <span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">Cant. Recibida</span>
+                  <span class="text-xl font-extrabold text-emerald-300">${data.cantidadRecibida}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        
+        contenedor.innerHTML += htmlTarjeta;
+      });
+    }
+
+    function copiarIdNitroCualquiera(idValue, btnId, textId) {
+      if (!idValue || idValue === "--") return;
+      navigator.clipboard.writeText(idValue).then(function() {
+        var btn = document.getElementById(btnId);
+        var textSpace = document.getElementById(textId);
+        textSpace.innerText = "✓ Copiado";
+        btn.className = "bg-emerald-950 text-emerald-400 px-3 py-1.5 rounded-lg border border-emerald-500/40 text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5";
+        setTimeout(function() {
+          textSpace.innerText = "Copiar";
+          btn.className = "bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5";
+        }, 2000);
+      });
+    }
+  </script>
+</body>
+</html>
