@@ -24,7 +24,7 @@
       <h1 class="text-2xl font-bold text-white tracking-wide flex justify-center items-center gap-2">
         🚀 Buscador de Órdenes Nitro
       </h1>
-      <p class="text-xs text-slate-400 mt-1 uppercase tracking-widest">Consulta Coincidencias desde GitHub</p>
+      <p class="text-xs text-slate-400 mt-1 uppercase tracking-widest">CONSULTA ID DESDE NITRO</p>
     </div>
 
     <div class="bg-[#1e293b] p-6 rounded-2xl shadow-xl border border-slate-700 mb-6">
@@ -55,7 +55,7 @@
   </div>
 
   <script>
-    // 🔗 !!! REEMPLAZA ESTA URL CON TU URL DE MACRO DE GOOGLE APPS SCRIPT !!!
+    // 🔗 !!! MANTIENE AQUÍ TU URL DE IMPLEMENTACION DE APPS SCRIPT !!!
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyar0C3avos5tH4S5lte-Bjc00aAhp0dnqE0X2YIXPPOdolUEZrvJylodQ9q_cJC7Vhaw/exec";
 
     document.getElementById('txtExternalId').addEventListener('keypress', function (e) {
@@ -76,7 +76,6 @@
       
       document.getElementById('divLoading').classList.remove('hidden');
       
-      // Nueva lógica mediante consulta fetch (API REST) externa
       fetch(`${WEB_APP_URL}?externalId=${encodeURIComponent(idInput)}`)
         .then(response => response.json())
         .then(response => {
@@ -89,15 +88,13 @@
         })
         .catch(err => {
           document.getElementById('divLoading').classList.add('hidden');
-          mostrarError("Error al conectar con la base de datos de Google Sheets.");
+          mostrarError("Error al conectar con el servidor de la API de Redash.");
           console.error(err);
         });
     }
 
     function mostrarError(msg) {
       var div = document.getElementById('divError');
-      
-      // Insertamos el error original junto con las instrucciones para el usuario
       div.innerHTML = `
         <div class="font-bold mb-1">⚠️ ${msg}</div>
         <div class="text-xs opacity-80 mt-2 border-t border-red-800/40 pt-2 font-normal">
@@ -105,7 +102,6 @@
           Si el error persiste, comunícate de inmediato con la <span class="font-semibold text-white">Torre de Control</span>.
         </div>
       `;
-      
       div.classList.remove('hidden');
     }
 
@@ -125,6 +121,15 @@
           estadoClases = "bg-red-500/10 text-red-400 border border-red-500/30";
         }
 
+        // CAMBIO 1: Validar que si la cantidad recibida es N/A, vacía o inválida, muestre 0
+        var cantRecibidaLimpia = data.cantidadRecibida;
+        if (!cantRecibidaLimpia || cantRecibidaLimpia.toString().trim().toUpperCase() === "N/A" || cantRecibidaLimpia.toString().trim() === "") {
+          cantRecibidaLimpia = "0";
+        }
+
+        // CAMBIO 3: Capturar la fecha de creación si viene desde el backend, de lo contrario colocar "N/A"
+        var fechaTxt = data.fechaCreacionMx || "N/A";
+
         var htmlTarjeta = `
           <div class="bg-[#1e293b] rounded-2xl shadow-2xl border border-slate-700 overflow-hidden">
             <div class="bg-[#0f172a] px-6 py-4 border-b border-slate-700 flex justify-between items-center">
@@ -132,7 +137,10 @@
                 <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">External ID</span>
                 <h2 class="text-lg font-bold font-mono text-blue-400">${data.externalId}</h2>
               </div>
-              <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${estadoClases}">${estadoTxt}</span>
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] font-mono text-slate-400 bg-slate-800/60 px-2 py-1 rounded border border-slate-700/60 font-semibold">${fechaTxt}</span>
+                <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${estadoClases}">${estadoTxt}</span>
+              </div>
             </div>
             
             <div class="p-6 grid grid-cols-1 gap-5">
@@ -159,7 +167,7 @@
                 </div>
                 <div class="bg-[#0f172a]/60 p-4 rounded-xl border border-emerald-900/30">
                   <span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">Cant. Recibida</span>
-                  <span class="text-xl font-extrabold text-emerald-300">${data.cantidadRecibida}</span>
+                  <span class="text-xl font-extrabold text-emerald-300">${cantRecibidaLimpia}</span>
                 </div>
               </div>
             </div>
