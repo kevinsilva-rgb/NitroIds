@@ -121,14 +121,17 @@
           estadoClases = "bg-red-500/10 text-red-400 border border-red-500/30";
         }
 
-        // CAMBIO 1: Validar que si la cantidad recibida es N/A, vacía o inválida, muestre 0
         var cantRecibidaLimpia = data.cantidadRecibida;
         if (!cantRecibidaLimpia || cantRecibidaLimpia.toString().trim().toUpperCase() === "N/A" || cantRecibidaLimpia.toString().trim() === "") {
           cantRecibidaLimpia = "0";
         }
 
-        // CAMBIO 3: Capturar la fecha de creación si viene desde el backend, de lo contrario colocar "N/A"
+        // --- AQUÍ ESTÁ EL CAMBIO ---
         var fechaTxt = data.fechaCreacionMx || "N/A";
+        if (fechaTxt !== "N/A" && fechaTxt.includes(" ")) {
+          fechaTxt = fechaTxt.split(" ")[0];
+        }
+        // ---------------------------
 
         var htmlTarjeta = `
           <div class="bg-[#1e293b] rounded-2xl shadow-2xl border border-slate-700 overflow-hidden">
