@@ -96,7 +96,16 @@
 
     function mostrarError(msg) {
       var div = document.getElementById('divError');
-      div.innerText = msg;
+      
+      // Insertamos el error original junto con las instrucciones para el usuario
+      div.innerHTML = `
+        <div class="font-bold mb-1">⚠️ ${msg}</div>
+        <div class="text-xs opacity-80 mt-2 border-t border-red-800/40 pt-2 font-normal">
+          Por favor, <span class="font-semibold underline">vuelve a intentar la búsqueda</span>.<br>
+          Si el error persiste, comunícate de inmediato con la <span class="font-semibold text-white">Torre de Control</span>.
+        </div>
+      `;
+      
       div.classList.remove('hidden');
     }
 
