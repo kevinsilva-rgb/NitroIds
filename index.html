@@ -27,13 +27,23 @@
       <p class="text-xs text-slate-400 mt-1 uppercase tracking-widest">CONSULTA ID DESDE NITRO</p>
     </div>
 
+    <!-- Panel Buscador con Botón de Actualizar Data -->
     <div class="bg-[#1e293b] p-6 rounded-2xl shadow-xl border border-slate-700 mb-6">
-      <div class="flex flex-col gap-2">
-        <label for="txtExternalId" class="text-xs font-bold uppercase tracking-wider text-blue-400">Ingresar Numero de Albaran u Orden de Compra</label>
+      <div class="flex flex-col gap-3">
+        <div class="flex justify-between items-center">
+          <label for="txtExternalId" class="text-xs font-bold uppercase tracking-wider text-blue-400">Ingresar Numero de Albaran u Orden de Compra</label>
+          
+          <!-- BOTÓN DE ACTUALIZAR DATA -->
+          <button onclick="actualizarDataQueries()" id="btnActualizarData"
+                  class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 px-3 py-1 rounded-lg text-[11px] font-bold tracking-wide transition-all active:scale-95 flex items-center gap-1.5 shadow-sm">
+            <span id="iconActualizar">🔄</span> <span id="txtActualizar">Actualizar Data</span>
+          </button>
+        </div>
+
         <div class="flex gap-2">
           <input type="text" id="txtExternalId" placeholder="Ej: 14212974" 
                  class="flex-1 px-4 py-3 bg-[#0f172a] border border-slate-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all font-medium text-white placeholder-slate-500">
-          <button onclick="ejecutarBusqueda()" id="btnBuscar"
+          <button onclick="ejecutarBusqueda(false)" id="btnBuscar"
                   class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center">
             Buscar
           </button>
@@ -41,11 +51,16 @@
       </div>
     </div>
 
+    <!-- Estado de Carga -->
     <div id="divLoading" class="hidden text-center py-8">
       <div class="loader ease-linear rounded-full border-4 border-t-4 border-slate-700 h-10 w-10 mx-auto mb-3"></div>
-      <p class="text-xs font-medium text-slate-400 tracking-wide">Buscando coincidencias en la base de datos...</p>
+      <p id="lblLoadingText" class="text-xs font-medium text-slate-400 tracking-wide">Buscando coincidencias en la base de datos...</p>
     </div>
 
+    <!-- Mensaje de Éxito de Refresco -->
+    <div id="divExito" class="hidden bg-emerald-950/40 border border-emerald-800/60 p-3 rounded-xl text-emerald-400 text-xs font-medium mb-6 text-center shadow-lg"></div>
+
+    <!-- Alerta de Error -->
     <div id="divError" class="hidden bg-red-950/40 border border-red-800/60 p-4 rounded-xl text-red-400 text-sm font-medium mb-6 text-center shadow-lg"></div>
 
     <div id="lblContador" class="hidden text-xs text-slate-400 font-bold uppercase tracking-wider mb-3 px-1"></div>
@@ -55,42 +70,82 @@
   </div>
 
   <script>
-    // 🔗 !!! MANTIENE AQUÍ TU URL DE IMPLEMENTACION DE APPS SCRIPT !!!
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyar0C3avos5tH4S5lte-Bjc00aAhp0dnqE0X2YIXPPOdolUEZrvJylodQ9q_cJC7Vhaw/exec";
 
     document.getElementById('txtExternalId').addEventListener('keypress', function (e) {
-      if (e.key === 'Enter') ejecutarBusqueda();
+      if (e.key === 'Enter') ejecutarBusqueda(false);
     });
 
-    function ejecutarBusqueda() {
+    function actualizarDataQueries() {
+      var btn = document.getElementById('btnActualizarData');
+      var txt = document.getElementById('txtActualizar');
+      var icon = document.getElementById('iconActualizar');
+      
+      btn.disabled = true;
+      btn.classList.add('opacity-50');
+      txt.innerText = "Actualizando Redash...";
+      icon.classList.add('animate-spin');
+      
+      ejecutarBusqueda(true);
+    }
+
+    function ejecutarBusqueda(forzarRefresco) {
       var idInput = document.getElementById('txtExternalId').value.trim();
       
       document.getElementById('divError').classList.add('hidden');
+      document.getElementById('divExito').classList.add('hidden');
       document.getElementById('lblContador').classList.add('hidden');
       document.getElementById('contenedorResultados').innerHTML = '';
       
-      if (!idInput) {
+      if (!idInput && !forzarRefresco) {
         mostrarError("Por favor, ingresa un término de búsqueda.");
+        restablecerBotonActualizar();
         return;
       }
       
+      var loadingText = document.getElementById('lblLoadingText');
+      loadingText.innerText = forzarRefresco 
+        ? "Forzando actualización de los queries en Redash..." 
+        : "Buscando coincidencias en la base de datos...";
+      
       document.getElementById('divLoading').classList.remove('hidden');
       
-      fetch(`${WEB_APP_URL}?externalId=${encodeURIComponent(idInput)}`)
+      fetch(`${WEB_APP_URL}?externalId=${encodeURIComponent(idInput)}&refrescar=${forzarRefresco}`)
         .then(response => response.json())
         .then(response => {
           document.getElementById('divLoading').classList.add('hidden');
+          restablecerBotonActualizar();
+
           if (response.error) {
             mostrarError(response.mensaje);
           } else {
-            mostrarMultiplesDatos(response.data);
+            if (response.mensajeRefresco) {
+              var divExito = document.getElementById('divExito');
+              divExito.innerText = "✓ " + response.mensajeRefresco;
+              divExito.classList.remove('hidden');
+            }
+            if (response.data && response.data.length > 0) {
+              mostrarMultiplesDatos(response.data);
+            }
           }
         })
         .catch(err => {
           document.getElementById('divLoading').classList.add('hidden');
+          restablecerBotonActualizar();
           mostrarError("Error al conectar con el servidor de la API de Redash.");
           console.error(err);
         });
+    }
+
+    function restablecerBotonActualizar() {
+      var btn = document.getElementById('btnActualizarData');
+      var txt = document.getElementById('txtActualizar');
+      var icon = document.getElementById('iconActualizar');
+      
+      btn.disabled = false;
+      btn.classList.remove('opacity-50');
+      txt.innerText = "Actualizar Data";
+      icon.classList.remove('animate-spin');
     }
 
     function mostrarError(msg) {
@@ -133,7 +188,6 @@
           fechaTxt = fechaTxt.split(" ")[0];
         }
 
-        // Estilos e identificadores
         var bordeTarjeta = esTransf ? "border-rose-600/80 shadow-rose-950/20" : "border-slate-700";
         var tituloColor = esTransf ? "text-rose-400" : "text-blue-400";
         var idNitroColor = esTransf ? "text-rose-400 drop-shadow-[0_0_6px_rgba(244,63,94,0.3)]" : "text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.2)]";
@@ -146,7 +200,6 @@
           ? `<span class="bg-rose-500/20 text-rose-300 border border-rose-500/50 px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-widest flex items-center gap-1">🔄 Transferencia</span>` 
           : '';
 
-        // Botón opcional para copiar el ID Superior si es transferencia
         var botonCopiarSuperior = esTransf ? `
           <button onclick="copiarIdNitroCualquiera('${data.externalId}', 'btnCopiarTop_${index}', 'txtCopiarTop_${index}')" id="btnCopiarTop_${index}" 
                   class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-2.5 py-1 rounded-lg border border-slate-600 text-[11px] font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1">
@@ -156,7 +209,6 @@
 
         var htmlTarjeta = `
           <div class="bg-[#1e293b] rounded-2xl shadow-2xl border ${bordeTarjeta} overflow-hidden transition-all">
-            <!-- Encabezado superior -->
             <div class="bg-[#0f172a] px-6 py-4 border-b border-slate-700/80 flex justify-between items-center">
               <div>
                 <div class="flex items-center gap-2 mb-0.5">
@@ -175,7 +227,6 @@
             </div>
             
             <div class="p-6 grid grid-cols-1 gap-5">
-              <!-- Bloque Secundario (SAP ID para transferencias / ID Nitro para órdenes) -->
               <div class="border-b border-slate-700/60 pb-3 flex justify-between items-end">
                 <div>
                   <span class="text-[10px] font-semibold ${esTransf ? 'text-rose-400' : 'text-emerald-400'} block uppercase tracking-wider">${labelSecundario}</span>
