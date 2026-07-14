@@ -133,35 +133,26 @@
           fechaTxt = fechaTxt.split(" ")[0];
         }
 
-        // Estilos para transferencias vs órdenes
+        // Estilos e identificadores según el tipo de registro
         var bordeTarjeta = esTransf ? "border-rose-600/80 shadow-rose-950/20" : "border-slate-700";
         var tituloColor = esTransf ? "text-rose-400" : "text-blue-400";
         var idNitroColor = esTransf ? "text-rose-400 drop-shadow-[0_0_6px_rgba(244,63,94,0.3)]" : "text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.2)]";
-        var labelNitroColor = esTransf ? "text-rose-400" : "text-emerald-400";
+        
+        // ETIQUETAS DINÁMICAS
+        var labelSuperior = esTransf ? "ID" : "EXTERNAL ID";
+        var labelSecundario = esTransf ? "SAP ID" : "ID NITRO (PO_ID)";
+        var valorSecundario = esTransf ? (data.sapId || "N/A") : data.idNitro;
+        
         var badgeTransferencia = esTransf 
           ? `<span class="bg-rose-500/20 text-rose-300 border border-rose-500/50 px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-widest flex items-center gap-1">🔄 Transferencia</span>` 
           : '';
-
-        // Bloque dinámico para mostrar SAP ID si es transferencia
-        var bloqueSapId = (esTransf && data.sapId) ? `
-          <div class="border-b border-slate-700/60 pb-3 flex justify-between items-end">
-            <div>
-              <span class="text-[10px] font-semibold text-rose-400 block uppercase tracking-wider">SAP ID</span>
-              <span id="resSapId_${index}" class="text-base font-extrabold text-white font-mono tracking-wide">${data.sapId}</span>
-            </div>
-            <button onclick="copiarIdNitroCualquiera('${data.sapId}', 'btnCopiarSap_${index}', 'txtCopiarSap_${index}')" id="btnCopiarSap_${index}" 
-                    class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5">
-              <span id="txtCopiarSap_${index}">Copiar SAP</span>
-            </button>
-          </div>
-        ` : '';
 
         var htmlTarjeta = `
           <div class="bg-[#1e293b] rounded-2xl shadow-2xl border ${bordeTarjeta} overflow-hidden transition-all">
             <div class="bg-[#0f172a] px-6 py-4 border-b border-slate-700/80 flex justify-between items-center">
               <div>
                 <div class="flex items-center gap-2 mb-0.5">
-                  <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">${esTransf ? 'N_PED' : 'External ID'}</span>
+                  <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">${labelSuperior}</span>
                   ${badgeTransferencia}
                 </div>
                 <h2 class="text-lg font-bold font-mono ${tituloColor}">${data.externalId}</h2>
@@ -173,21 +164,18 @@
             </div>
             
             <div class="p-6 grid grid-cols-1 gap-5">
-              <!-- Bloque del ID Nitro / N_PED -->
+              <!-- Bloque dinámico: Sap ID para transferencias / ID Nitro para órdenes -->
               <div class="border-b border-slate-700/60 pb-3 flex justify-between items-end">
                 <div>
-                  <span class="text-[10px] font-semibold ${labelNitroColor} block uppercase tracking-wider">${esTransf ? 'N_PED (ID Nitro)' : 'ID Nitro (PO_ID)'}</span>
-                  <span id="resIdNitro_${index}" class="text-lg font-extrabold ${idNitroColor} font-mono tracking-wide">${data.idNitro}</span>
+                  <span class="text-[10px] font-semibold ${esTransf ? 'text-rose-400' : 'text-emerald-400'} block uppercase tracking-wider">${labelSecundario}</span>
+                  <span id="resIdNitro_${index}" class="text-lg font-extrabold ${idNitroColor} font-mono tracking-wide">${valorSecundario}</span>
                 </div>
-                <button onclick="copiarIdNitroCualquiera('${data.idNitro}', 'btnCopiar_${index}', 'txtCopiar_${index}')" id="btnCopiar_${index}" 
+                <button onclick="copiarIdNitroCualquiera('${valorSecundario}', 'btnCopiar_${index}', 'txtCopiar_${index}')" id="btnCopiar_${index}" 
                         class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5">
                   <span id="txtCopiar_${index}">Copiar</span>
                 </button>
               </div>
 
-              <!-- Bloque adicional para SAP ID si aplica -->
-              ${bloqueSapId}
-              
               <div class="border-b border-slate-700/60 pb-3">
                 <span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">Tienda Destino</span>
                 <span class="text-base font-bold text-white">${data.tienda}</span>
