@@ -114,6 +114,9 @@
 
       listaOrdenes.forEach(function(data, index) {
         var estadoTxt = data.estadoPo.toString().toUpperCase();
+        var esTransf = data.esTransferencia === true;
+
+        // Estilos condicionales del estado
         var estadoClases = "bg-amber-500/10 text-amber-400 border border-amber-500/30";
         if (estadoTxt.includes("SENT") || estadoTxt.includes("DELIVERY")) {
           estadoClases = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30";
@@ -121,24 +124,36 @@
           estadoClases = "bg-red-500/10 text-red-400 border border-red-500/30";
         }
 
+        // Limpieza de cantidad recibida
         var cantRecibidaLimpia = data.cantidadRecibida;
         if (!cantRecibidaLimpia || cantRecibidaLimpia.toString().trim().toUpperCase() === "N/A" || cantRecibidaLimpia.toString().trim() === "") {
           cantRecibidaLimpia = "0";
         }
 
-        // --- AQUÍ ESTÁ EL CAMBIO ---
+        // Limpieza de fecha
         var fechaTxt = data.fechaCreacionMx || "N/A";
         if (fechaTxt !== "N/A" && fechaTxt.includes(" ")) {
           fechaTxt = fechaTxt.split(" ")[0];
         }
-        // ---------------------------
+
+        // --- PALETA DINÁMICA: ROJA PARA TRANSFERENCIAS vs AZUL/ESMERALDA PARA ÓRDENES ---
+        var bordeTarjeta = esTransf ? "border-rose-600/80 shadow-rose-950/20" : "border-slate-700";
+        var tituloColor = esTransf ? "text-rose-400" : "text-blue-400";
+        var idNitroColor = esTransf ? "text-rose-400 drop-shadow-[0_0_6px_rgba(244,63,94,0.3)]" : "text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.2)]";
+        var labelNitroColor = esTransf ? "text-rose-400" : "text-emerald-400";
+        var badgeTransferencia = esTransf 
+          ? `<span class="bg-rose-500/20 text-rose-300 border border-rose-500/50 px-2 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-widest flex items-center gap-1">🔄 Transferencia</span>` 
+          : '';
 
         var htmlTarjeta = `
-          <div class="bg-[#1e293b] rounded-2xl shadow-2xl border border-slate-700 overflow-hidden">
-            <div class="bg-[#0f172a] px-6 py-4 border-b border-slate-700 flex justify-between items-center">
+          <div class="bg-[#1e293b] rounded-2xl shadow-2xl border ${bordeTarjeta} overflow-hidden transition-all">
+            <div class="bg-[#0f172a] px-6 py-4 border-b border-slate-700/80 flex justify-between items-center">
               <div>
-                <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">External ID</span>
-                <h2 class="text-lg font-bold font-mono text-blue-400">${data.externalId}</h2>
+                <div class="flex items-center gap-2 mb-0.5">
+                  <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">External ID</span>
+                  ${badgeTransferencia}
+                </div>
+                <h2 class="text-lg font-bold font-mono ${tituloColor}">${data.externalId}</h2>
               </div>
               <div class="flex items-center gap-2">
                 <span class="text-[10px] font-mono text-slate-400 bg-slate-800/60 px-2 py-1 rounded border border-slate-700/60 font-semibold">${fechaTxt}</span>
@@ -149,8 +164,8 @@
             <div class="p-6 grid grid-cols-1 gap-5">
               <div class="border-b border-slate-700/60 pb-3 flex justify-between items-end">
                 <div>
-                  <span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">ID Nitro (PO_ID)</span>
-                  <span id="resIdNitro_${index}" class="text-lg font-extrabold text-emerald-400 font-mono tracking-wide drop-shadow-[0_0_6px_rgba(16,185,129,0.2)]">${data.idNitro}</span>
+                  <span class="text-[10px] font-semibold ${labelNitroColor} block uppercase tracking-wider">ID Nitro (PO_ID)</span>
+                  <span id="resIdNitro_${index}" class="text-lg font-extrabold ${idNitroColor} font-mono tracking-wide">${data.idNitro}</span>
                 </div>
                 <button onclick="copiarIdNitroCualquiera('${data.idNitro}', 'btnCopiar_${index}', 'txtCopiar_${index}')" id="btnCopiar_${index}" 
                         class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5">
@@ -164,13 +179,13 @@
               </div>
               
               <div class="grid grid-cols-2 gap-4 pt-1">
-                <div class="bg-[#0f172a]/60 p-4 rounded-xl border border-blue-900/30">
-                  <span class="text-[10px] font-semibold text-blue-400 block uppercase tracking-wider">Cant. Solicitada</span>
-                  <span class="text-xl font-extrabold text-blue-300">${data.cantidadSolicitada}</span>
+                <div class="bg-[#0f172a]/60 p-4 rounded-xl border ${esTransf ? 'border-rose-900/30' : 'border-blue-900/30'}">
+                  <span class="text-[10px] font-semibold ${esTransf ? 'text-rose-400' : 'text-blue-400'} block uppercase tracking-wider">Cant. Solicitada</span>
+                  <span class="text-xl font-extrabold ${esTransf ? 'text-rose-300' : 'text-blue-300'}">${data.cantidadSolicitada}</span>
                 </div>
-                <div class="bg-[#0f172a]/60 p-4 rounded-xl border border-emerald-900/30">
-                  <span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">Cant. Recibida</span>
-                  <span class="text-xl font-extrabold text-emerald-300">${cantRecibidaLimpia}</span>
+                <div class="bg-[#0f172a]/60 p-4 rounded-xl border ${esTransf ? 'border-rose-900/30' : 'border-emerald-900/30'}">
+                  <span class="text-[10px] font-semibold ${esTransf ? 'text-rose-400' : 'text-emerald-400'} block uppercase tracking-wider">Cant. Recibida</span>
+                  <span class="text-xl font-extrabold ${esTransf ? 'text-rose-300' : 'text-emerald-300'}">${cantRecibidaLimpia}</span>
                 </div>
               </div>
             </div>
