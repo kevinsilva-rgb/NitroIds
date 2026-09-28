@@ -50,7 +50,7 @@
                 class="w-full px-4 py-3 bg-[#0f172a] border border-slate-600 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none font-medium text-white disabled:opacity-50">
           <option value="">Primero elige tu tienda</option>
         </select>
-        <p class="text-[11px] text-slate-400 mt-3">Se muestran las 2 órdenes abiertas más antiguas de la tienda para ese proveedor. <span class="text-cyan-300 font-semibold">Ingresa el hielo primero en la #1.</span></p>
+        <p class="text-[11px] text-slate-400 mt-3">Se muestra la orden abierta más antigua de la tienda para ese proveedor. <span class="text-cyan-300 font-semibold">Ingresa el hielo en esa orden.</span></p>
         <p id="lblActualizadoHielo" class="text-[10px] text-slate-500 mt-1"></p>
       </div>
       <div id="divLoadingHielo" class="hidden text-center py-8">
@@ -111,7 +111,7 @@
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyar0C3avos5tH4S5lte-Bjc00aAhp0dnqE0X2YIXPPOdolUEZrvJylodQ9q_cJC7Vhaw/exec";
     // Ordenes de hielo: endpoint del backend de Control Hielo Chedraui (kevinsilva-rgb/Control-Hielo-Chedraui,
     // doGet ?api=ordenesHielo, query Redash 138487) — proveedor Turbo TIENDAS CHEDRAUI, abiertas = SENT/AT_STORE,
-    // por tienda y proveedor (marca Hielo Club / Hielo Fiesta / Iglu), las 2 mas antiguas.
+    // por tienda y proveedor (marca Hielo Club / Hielo Fiesta / Iglu), la mas antigua.
     const HIELO_API_URL = "https://script.google.com/macros/s/AKfycbxUy3nlvDOEHp20OzHcYJAH2N7f9El1eRjWl3lfVvNMJDw3EYRyz0E6j0dtKtDhHHjY/exec?api=ordenesHielo";
     var datosHielo = null;
 
@@ -406,16 +406,12 @@
       }
 
       prov.ordenes.forEach(function (o, i) {
-        var n = i + 1;
         var pendiente = Math.max(0, (Number(o.cantidadSolicitada) || 0) - (Number(o.cantidadRecibida) || 0));
         var partes = (o.fechaCreacionMx || '').split(' ');
         var ymd = (partes[0] || '').split('-');
         var fechaTxt = ymd.length === 3 ? ymd[2] + '/' + ymd[1] + '/' + ymd[0] + ' ' + (partes[1] || '') : 'N/A';
-        var esPrimera = n === 1;
-        var borde = esPrimera ? 'border-cyan-500/80 shadow-cyan-950/30' : 'border-slate-700';
-        var etiqueta = esPrimera
-          ? '<span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-widest">#1 · Ingresar primero</span>'
-          : '<span class="bg-slate-700/60 text-slate-300 border border-slate-600 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-widest">#2 · Siguiente</span>';
+        var borde = 'border-cyan-500/80 shadow-cyan-950/30';
+        var etiqueta = '<span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-widest">Ingresar aquí · la más antigua</span>';
         var extId = o.externalId
           ? '<div class="flex justify-between items-end border-b border-slate-700/60 pb-3">' +
               '<div><span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">External ID (albarán / OC)</span>' +
@@ -451,7 +447,7 @@
       });
 
       if (prov.totalAbiertas > prov.ordenes.length) {
-        cont.innerHTML += '<p class="text-[11px] text-slate-500 text-center">La tienda tiene ' + prov.totalAbiertas + ' órdenes abiertas de ' + escaparHtml(prov.proveedor) + '; se muestran las 2 más antiguas.</p>';
+        cont.innerHTML += '<p class="text-[11px] text-slate-500 text-center">La tienda tiene ' + prov.totalAbiertas + ' órdenes abiertas de ' + escaparHtml(prov.proveedor) + '; se muestra la más antigua.</p>';
       }
     }
 
