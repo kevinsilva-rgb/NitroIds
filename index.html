@@ -41,11 +41,16 @@
             🔄 Actualizar
           </button>
         </div>
-        <select id="selTiendaHielo" onchange="mostrarOrdenesHielo()" disabled
+        <select id="selTiendaHielo" onchange="elegirTiendaHielo()" disabled
                 class="w-full px-4 py-3 bg-[#0f172a] border border-slate-600 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none font-medium text-white">
           <option value="">Cargando tiendas...</option>
         </select>
-        <p class="text-[11px] text-slate-400 mt-3">Se muestran las 2 órdenes de hielo abiertas más antiguas de la tienda. <span class="text-cyan-300 font-semibold">Ingresa el hielo primero en la #1.</span></p>
+        <label for="selProveedorHielo" class="block text-xs font-bold uppercase tracking-wider text-cyan-400 mt-4 mb-3">Selecciona el proveedor</label>
+        <select id="selProveedorHielo" onchange="mostrarOrdenesHielo()" disabled
+                class="w-full px-4 py-3 bg-[#0f172a] border border-slate-600 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none font-medium text-white disabled:opacity-50">
+          <option value="">Primero elige tu tienda</option>
+        </select>
+        <p class="text-[11px] text-slate-400 mt-3">Se muestran las 2 órdenes abiertas más antiguas de la tienda para ese proveedor. <span class="text-cyan-300 font-semibold">Ingresa el hielo primero en la #1.</span></p>
         <p id="lblActualizadoHielo" class="text-[10px] text-slate-500 mt-1"></p>
       </div>
       <div id="divLoadingHielo" class="hidden text-center py-8">
@@ -105,8 +110,8 @@
   <script>
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyar0C3avos5tH4S5lte-Bjc00aAhp0dnqE0X2YIXPPOdolUEZrvJylodQ9q_cJC7Vhaw/exec";
     // Ordenes de hielo: endpoint del backend de Control Hielo Chedraui (kevinsilva-rgb/Control-Hielo-Chedraui,
-    // doGet ?api=ordenesHielo, query Redash 138487) — proveedor TIENDAS CHEDRAUI, abiertas = SENT/AT_STORE,
-    // 2 mas antiguas por tienda.
+    // doGet ?api=ordenesHielo, query Redash 138487) — proveedor Turbo TIENDAS CHEDRAUI, abiertas = SENT/AT_STORE,
+    // por tienda y proveedor (marca Hielo Club / Hielo Fiesta), las 2 mas antiguas.
     const HIELO_API_URL = "https://script.google.com/macros/s/AKfycbxUy3nlvDOEHp20OzHcYJAH2N7f9El1eRjWl3lfVvNMJDw3EYRyz0E6j0dtKtDhHHjY/exec?api=ordenesHielo";
     var datosHielo = null;
 
@@ -314,10 +319,17 @@
       if (mostrarHielo && !datosHielo) cargarOrdenesHielo(false);
     }
 
+    function textoAbiertas(n) {
+      return n ? n + (n === 1 ? ' abierta' : ' abiertas') : 'sin órdenes abiertas';
+    }
+
     function cargarOrdenesHielo(forzarRefresco) {
       var sel = document.getElementById('selTiendaHielo');
+      var selProv = document.getElementById('selProveedorHielo');
       var btn = document.getElementById('btnRefrescarHielo');
-      var tiendaPrevia = sel.value;
+      // Recordar la seleccion por nombre para restaurarla despues de Actualizar
+      var tiendaPrevia = sel.value !== '' && datosHielo ? datosHielo[Number(sel.value)].tienda : null;
+      var provPrevio = selProv.value !== '' && tiendaPrevia ? datosHielo[Number(sel.value)].proveedores[Number(selProv.value)].proveedor : null;
       document.getElementById('divErrorHielo').classList.add('hidden');
       document.getElementById('contenedorHielo').innerHTML = '';
       document.getElementById('divLoadingHielo').classList.remove('hidden');
@@ -330,12 +342,13 @@
           if (resp.error) throw new Error(resp.mensaje);
           datosHielo = resp.tiendas;
           sel.innerHTML = '<option value="">— Elige una tienda —</option>' + datosHielo.map(function (t, i) {
-            var sufijo = t.totalAbiertas ? ' (' + t.totalAbiertas + (t.totalAbiertas === 1 ? ' abierta)' : ' abiertas)') : ' (sin órdenes abiertas)';
-            return '<option value="' + i + '">' + escaparHtml(t.tienda + sufijo) + '</option>';
+            var total = t.proveedores.reduce(function (acc, p) { return acc + p.totalAbiertas; }, 0);
+            return '<option value="' + i + '">' + escaparHtml(t.tienda + ' (' + textoAbiertas(total) + ')') + '</option>';
           }).join('');
           sel.disabled = false;
-          var idx = datosHielo.findIndex(function (t) { return tiendaPrevia !== '' && t.tienda === (sel.dataset.tiendaNombre || ''); });
-          if (idx >= 0) { sel.value = idx; mostrarOrdenesHielo(); }
+          var idx = datosHielo.findIndex(function (t) { return t.tienda === tiendaPrevia; });
+          sel.value = idx >= 0 ? idx : '';
+          elegirTiendaHielo(provPrevio);
           document.getElementById('lblActualizadoHielo').innerText = 'Datos al ' + resp.actualizado;
         })
         .catch(function (err) {
@@ -352,6 +365,24 @@
         });
     }
 
+    function elegirTiendaHielo(provPrevio) {
+      var sel = document.getElementById('selTiendaHielo');
+      var selProv = document.getElementById('selProveedorHielo');
+      document.getElementById('contenedorHielo').innerHTML = '';
+      if (sel.value === '' || !datosHielo) {
+        selProv.innerHTML = '<option value="">Primero elige tu tienda</option>';
+        selProv.disabled = true;
+        return;
+      }
+      var tienda = datosHielo[Number(sel.value)];
+      selProv.innerHTML = '<option value="">— Elige el proveedor —</option>' + tienda.proveedores.map(function (p, i) {
+        return '<option value="' + i + '">' + escaparHtml(p.proveedor + ' (' + textoAbiertas(p.totalAbiertas) + ')') + '</option>';
+      }).join('');
+      selProv.disabled = false;
+      var idx = tienda.proveedores.findIndex(function (p) { return p.proveedor === provPrevio; });
+      if (idx >= 0) { selProv.value = idx; mostrarOrdenesHielo(); }
+    }
+
     function diasDesde(fechaYmd) {
       var f = new Date(fechaYmd.replace(' ', 'T'));
       var dias = Math.floor((Date.now() - f.getTime()) / 86400000);
@@ -360,20 +391,21 @@
 
     function mostrarOrdenesHielo() {
       var sel = document.getElementById('selTiendaHielo');
+      var selProv = document.getElementById('selProveedorHielo');
       var cont = document.getElementById('contenedorHielo');
       cont.innerHTML = '';
-      if (sel.value === '' || !datosHielo) { sel.dataset.tiendaNombre = ''; return; }
+      if (sel.value === '' || selProv.value === '' || !datosHielo) return;
       var tienda = datosHielo[Number(sel.value)];
-      sel.dataset.tiendaNombre = tienda.tienda;
+      var prov = tienda.proveedores[Number(selProv.value)];
 
-      if (!tienda.ordenes.length) {
+      if (!prov.ordenes.length) {
         cont.innerHTML = '<div class="bg-amber-950/40 border border-amber-800/60 p-4 rounded-xl text-amber-300 text-sm font-medium text-center shadow-lg">' +
-          '⚠️ <span class="font-bold">' + escaparHtml(tienda.tienda) + '</span> no tiene órdenes de hielo abiertas.<br>' +
+          '⚠️ <span class="font-bold">' + escaparHtml(tienda.tienda) + '</span> no tiene órdenes abiertas de <span class="font-bold">' + escaparHtml(prov.proveedor) + '</span>.<br>' +
           '<span class="text-xs opacity-80 font-normal">Comunícate con la <span class="font-semibold text-white">Torre de Control</span> antes de ingresar hielo.</span></div>';
         return;
       }
 
-      tienda.ordenes.forEach(function (o, i) {
+      prov.ordenes.forEach(function (o, i) {
         var n = i + 1;
         var pendiente = Math.max(0, (Number(o.cantidadSolicitada) || 0) - (Number(o.cantidadRecibida) || 0));
         var partes = (o.fechaCreacionMx || '').split(' ');
@@ -395,7 +427,7 @@
         cont.innerHTML +=
           '<div class="bg-[#1e293b] rounded-2xl shadow-2xl border ' + borde + ' overflow-hidden">' +
             '<div class="bg-[#0f172a] px-6 py-4 border-b border-slate-700/80 flex justify-between items-center gap-2">' +
-              '<div>' + etiqueta + '<div class="text-sm font-bold text-white mt-1.5">' + escaparHtml(o.proveedor) + '</div></div>' +
+              '<div>' + etiqueta + '<div class="text-sm font-bold text-white mt-1.5">' + escaparHtml(prov.proveedor) + '</div></div>' +
               '<div class="text-right">' +
                 '<span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/30">' + escaparHtml(o.estadoPo) + '</span>' +
                 '<div class="text-[10px] font-mono text-slate-400 mt-1.5">' + escaparHtml(fechaTxt) + ' · ' + diasDesde(o.fechaCreacionMx) + '</div>' +
@@ -418,8 +450,8 @@
           '</div>';
       });
 
-      if (tienda.totalAbiertas > tienda.ordenes.length) {
-        cont.innerHTML += '<p class="text-[11px] text-slate-500 text-center">La tienda tiene ' + tienda.totalAbiertas + ' órdenes de hielo abiertas; se muestran las 2 más antiguas.</p>';
+      if (prov.totalAbiertas > prov.ordenes.length) {
+        cont.innerHTML += '<p class="text-[11px] text-slate-500 text-center">La tienda tiene ' + prov.totalAbiertas + ' órdenes abiertas de ' + escaparHtml(prov.proveedor) + '; se muestran las 2 más antiguas.</p>';
       }
     }
 
