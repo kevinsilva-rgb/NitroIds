@@ -172,10 +172,11 @@
         var esTransf = data.esTransferencia === true;
 
         var estadoClases = "bg-amber-500/10 text-amber-400 border border-amber-500/30";
-        if (estadoTxt.includes("SENT") || estadoTxt.includes("DELIVERY") || estadoTxt.includes("COMPLETED")) {
-          estadoClases = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30";
-        } else if (estadoTxt.includes("CANCEL")) {
+        // ZERO_DELIVERY contiene "DELIVERY": se evalua antes que la regla verde para que no salga como exito
+        if (estadoTxt.includes("CANCEL") || estadoTxt.includes("ZERO")) {
           estadoClases = "bg-red-500/10 text-red-400 border border-red-500/30";
+        } else if (estadoTxt.includes("SENT") || estadoTxt.includes("DELIVERY") || estadoTxt.includes("COMPLETED")) {
+          estadoClases = "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30";
         }
 
         var cantRecibidaLimpia = data.cantidadRecibida;
@@ -266,11 +267,19 @@
       navigator.clipboard.writeText(idValue).then(function() {
         var btn = document.getElementById(btnId);
         var textSpace = document.getElementById(textId);
+        // Guarda texto y clases originales (cada boton tiene los suyos: "Copiar", "Copiar SAP", "Copiar ID")
+        if (!btn.dataset.textoOriginal) {
+          btn.dataset.textoOriginal = textSpace.innerText;
+          btn.dataset.clasesOriginales = btn.className;
+        }
         textSpace.innerText = "✓ Copiado";
-        btn.className = "bg-emerald-950 text-emerald-400 px-3 py-1.5 rounded-lg border border-emerald-500/40 text-xs font-semibold tracking-wide transition-all flex items-center gap-1.5";
-        setTimeout(function() {
-          textSpace.innerText = "Copiar";
-          btn.className = "bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5";
+        btn.className = btn.dataset.clasesOriginales
+          .replace(/bg-slate-800|hover:bg-slate-700|text-slate-300|hover:text-white|border-slate-600|active:scale-95/g, "")
+          + " bg-emerald-950 text-emerald-400 border-emerald-500/40";
+        clearTimeout(btn._timerCopiado);
+        btn._timerCopiado = setTimeout(function() {
+          textSpace.innerText = btn.dataset.textoOriginal;
+          btn.className = btn.dataset.clasesOriginales;
         }, 2000);
       });
     }
