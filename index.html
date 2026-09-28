@@ -25,7 +25,39 @@
         🚀 Buscador de Órdenes Nitro
       </h1>
       <p class="text-xs text-slate-400 mt-1 uppercase tracking-widest">CONSULTA ID DESDE NITRO</p>
+      <button onclick="alternarVistaHielo()" id="btnVistaHielo"
+              class="mt-4 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 px-4 py-2 rounded-xl text-xs font-bold tracking-wide transition-all active:scale-95 shadow-sm">
+        🧊 Órdenes de Hielo
+      </button>
     </div>
+
+    <!-- VISTA ORDENES DE HIELO -->
+    <div id="vistaHielo" class="hidden">
+      <div class="bg-[#1e293b] p-6 rounded-2xl shadow-xl border border-cyan-800/60 mb-6">
+        <div class="flex justify-between items-center mb-3">
+          <label for="selTiendaHielo" class="text-xs font-bold uppercase tracking-wider text-cyan-400">Selecciona tu tienda</label>
+          <button onclick="cargarOrdenesHielo(true)" id="btnRefrescarHielo"
+                  class="bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/40 px-3 py-1 rounded-lg text-[11px] font-bold tracking-wide transition-all active:scale-95 shadow-sm">
+            🔄 Actualizar
+          </button>
+        </div>
+        <select id="selTiendaHielo" onchange="mostrarOrdenesHielo()" disabled
+                class="w-full px-4 py-3 bg-[#0f172a] border border-slate-600 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none font-medium text-white">
+          <option value="">Cargando tiendas...</option>
+        </select>
+        <p class="text-[11px] text-slate-400 mt-3">Se muestran las 2 órdenes de hielo abiertas más antiguas de la tienda. <span class="text-cyan-300 font-semibold">Ingresa el hielo primero en la #1.</span></p>
+        <p id="lblActualizadoHielo" class="text-[10px] text-slate-500 mt-1"></p>
+      </div>
+      <div id="divLoadingHielo" class="hidden text-center py-8">
+        <div class="loader ease-linear rounded-full border-4 border-t-4 border-slate-700 h-10 w-10 mx-auto mb-3"></div>
+        <p class="text-xs font-medium text-slate-400 tracking-wide">Consultando órdenes de hielo...</p>
+      </div>
+      <div id="divErrorHielo" class="hidden bg-red-950/40 border border-red-800/60 p-4 rounded-xl text-red-400 text-sm font-medium mb-6 text-center shadow-lg"></div>
+      <div id="contenedorHielo" class="flex flex-col gap-6"></div>
+    </div>
+
+    <!-- VISTA BUSCADOR -->
+    <div id="vistaBuscador">
 
     <!-- Panel Buscador con Botón de Actualizar Data -->
     <div class="bg-[#1e293b] p-6 rounded-2xl shadow-xl border border-slate-700 mb-6">
@@ -66,11 +98,16 @@
     <div id="lblContador" class="hidden text-xs text-slate-400 font-bold uppercase tracking-wider mb-3 px-1"></div>
 
     <div id="contenedorResultados" class="flex flex-col gap-6"></div>
+    </div>
 
   </div>
 
   <script>
     const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyar0C3avos5tH4S5lte-Bjc00aAhp0dnqE0X2YIXPPOdolUEZrvJylodQ9q_cJC7Vhaw/exec";
+    // Ordenes de hielo: endpoint del backend de Control Hielo Chedraui (kevinsilva-rgb/Control-Hielo-Chedraui,
+    // doGet ?api=ordenesHielo, query Redash 138487) — todas los proveedores, 2 mas antiguas abiertas por tienda.
+    const HIELO_API_URL = "https://script.google.com/macros/s/AKfycbxUy3nlvDOEHp20OzHcYJAH2N7f9El1eRjWl3lfVvNMJDw3EYRyz0E6j0dtKtDhHHjY/exec?api=ordenesHielo";
+    var datosHielo = null;
 
     document.getElementById('txtExternalId').addEventListener('keypress', function (e) {
       if (e.key === 'Enter') ejecutarBusqueda(false);
@@ -260,6 +297,129 @@
         
         contenedor.innerHTML += htmlTarjeta;
       });
+    }
+
+    function escaparHtml(v) {
+      return (v === null || v === undefined ? '' : v.toString())
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function alternarVistaHielo() {
+      var vistaHielo = document.getElementById('vistaHielo');
+      var mostrarHielo = vistaHielo.classList.contains('hidden');
+      vistaHielo.classList.toggle('hidden', !mostrarHielo);
+      document.getElementById('vistaBuscador').classList.toggle('hidden', mostrarHielo);
+      document.getElementById('btnVistaHielo').innerText = mostrarHielo ? '🔎 Volver al buscador de IDs' : '🧊 Órdenes de Hielo';
+      if (mostrarHielo && !datosHielo) cargarOrdenesHielo(false);
+    }
+
+    function cargarOrdenesHielo(forzarRefresco) {
+      var sel = document.getElementById('selTiendaHielo');
+      var btn = document.getElementById('btnRefrescarHielo');
+      var tiendaPrevia = sel.value;
+      document.getElementById('divErrorHielo').classList.add('hidden');
+      document.getElementById('contenedorHielo').innerHTML = '';
+      document.getElementById('divLoadingHielo').classList.remove('hidden');
+      btn.disabled = true;
+      btn.classList.add('opacity-50');
+
+      fetch(HIELO_API_URL + '&refrescar=' + forzarRefresco)
+        .then(function (r) { return r.json(); })
+        .then(function (resp) {
+          if (resp.error) throw new Error(resp.mensaje);
+          datosHielo = resp.tiendas;
+          sel.innerHTML = '<option value="">— Elige una tienda —</option>' + datosHielo.map(function (t, i) {
+            var sufijo = t.totalAbiertas ? ' (' + t.totalAbiertas + (t.totalAbiertas === 1 ? ' abierta)' : ' abiertas)') : ' (sin órdenes abiertas)';
+            return '<option value="' + i + '">' + escaparHtml(t.tienda + sufijo) + '</option>';
+          }).join('');
+          sel.disabled = false;
+          var idx = datosHielo.findIndex(function (t) { return tiendaPrevia !== '' && t.tienda === (sel.dataset.tiendaNombre || ''); });
+          if (idx >= 0) { sel.value = idx; mostrarOrdenesHielo(); }
+          document.getElementById('lblActualizadoHielo').innerText = 'Datos al ' + resp.actualizado;
+        })
+        .catch(function (err) {
+          console.error(err);
+          var div = document.getElementById('divErrorHielo');
+          div.innerHTML = '<div class="font-bold mb-1">⚠️ No se pudieron cargar las órdenes de hielo.</div>' +
+            '<div class="text-xs opacity-80 mt-2 border-t border-red-800/40 pt-2 font-normal">Vuelve a intentar con <span class="font-semibold underline">🔄 Actualizar</span>. Si el error persiste, comunícate con la <span class="font-semibold text-white">Torre de Control</span>.</div>';
+          div.classList.remove('hidden');
+        })
+        .finally(function () {
+          document.getElementById('divLoadingHielo').classList.add('hidden');
+          btn.disabled = false;
+          btn.classList.remove('opacity-50');
+        });
+    }
+
+    function diasDesde(fechaYmd) {
+      var f = new Date(fechaYmd.replace(' ', 'T'));
+      var dias = Math.floor((Date.now() - f.getTime()) / 86400000);
+      return dias <= 0 ? 'hoy' : dias === 1 ? 'hace 1 día' : 'hace ' + dias + ' días';
+    }
+
+    function mostrarOrdenesHielo() {
+      var sel = document.getElementById('selTiendaHielo');
+      var cont = document.getElementById('contenedorHielo');
+      cont.innerHTML = '';
+      if (sel.value === '' || !datosHielo) { sel.dataset.tiendaNombre = ''; return; }
+      var tienda = datosHielo[Number(sel.value)];
+      sel.dataset.tiendaNombre = tienda.tienda;
+
+      if (!tienda.ordenes.length) {
+        cont.innerHTML = '<div class="bg-amber-950/40 border border-amber-800/60 p-4 rounded-xl text-amber-300 text-sm font-medium text-center shadow-lg">' +
+          '⚠️ <span class="font-bold">' + escaparHtml(tienda.tienda) + '</span> no tiene órdenes de hielo abiertas.<br>' +
+          '<span class="text-xs opacity-80 font-normal">Comunícate con la <span class="font-semibold text-white">Torre de Control</span> antes de ingresar hielo.</span></div>';
+        return;
+      }
+
+      tienda.ordenes.forEach(function (o, i) {
+        var n = i + 1;
+        var pendiente = Math.max(0, (Number(o.cantidadSolicitada) || 0) - (Number(o.cantidadRecibida) || 0));
+        var partes = (o.fechaCreacionMx || '').split(' ');
+        var ymd = (partes[0] || '').split('-');
+        var fechaTxt = ymd.length === 3 ? ymd[2] + '/' + ymd[1] + '/' + ymd[0] + ' ' + (partes[1] || '') : 'N/A';
+        var esPrimera = n === 1;
+        var borde = esPrimera ? 'border-cyan-500/80 shadow-cyan-950/30' : 'border-slate-700';
+        var etiqueta = esPrimera
+          ? '<span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-widest">#1 · Ingresar primero</span>'
+          : '<span class="bg-slate-700/60 text-slate-300 border border-slate-600 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-widest">#2 · Siguiente</span>';
+        var extId = o.externalId
+          ? '<div class="flex justify-between items-end border-b border-slate-700/60 pb-3">' +
+              '<div><span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">External ID (albarán / OC)</span>' +
+              '<span class="text-base font-bold font-mono text-blue-300">' + escaparHtml(o.externalId) + '</span></div>' +
+              '<button onclick="copiarIdNitroCualquiera(\'' + escaparHtml(o.externalId) + '\', \'btnHieloExt_' + i + '\', \'txtHieloExt_' + i + '\')" id="btnHieloExt_' + i + '" class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5"><span id="txtHieloExt_' + i + '">Copiar</span></button>' +
+            '</div>'
+          : '';
+
+        cont.innerHTML +=
+          '<div class="bg-[#1e293b] rounded-2xl shadow-2xl border ' + borde + ' overflow-hidden">' +
+            '<div class="bg-[#0f172a] px-6 py-4 border-b border-slate-700/80 flex justify-between items-center gap-2">' +
+              '<div>' + etiqueta + '<div class="text-sm font-bold text-white mt-1.5">' + escaparHtml(o.proveedor) + '</div></div>' +
+              '<div class="text-right">' +
+                '<span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/30">' + escaparHtml(o.estadoPo) + '</span>' +
+                '<div class="text-[10px] font-mono text-slate-400 mt-1.5">' + escaparHtml(fechaTxt) + ' · ' + diasDesde(o.fechaCreacionMx) + '</div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="p-6 grid grid-cols-1 gap-4">' +
+              '<div class="flex justify-between items-end border-b border-slate-700/60 pb-3">' +
+                '<div><span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">ID Nitro (PO_ID)</span>' +
+                '<span class="text-2xl font-extrabold font-mono tracking-wide text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.2)]">' + escaparHtml(o.idNitro) + '</span></div>' +
+                '<button onclick="copiarIdNitroCualquiera(\'' + escaparHtml(o.idNitro) + '\', \'btnHielo_' + i + '\', \'txtHielo_' + i + '\')" id="btnHielo_' + i + '" class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5"><span id="txtHielo_' + i + '">Copiar</span></button>' +
+              '</div>' +
+              extId +
+              '<div class="text-xs text-slate-300"><span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider mb-0.5">Producto</span>' + escaparHtml(o.productos) + '</div>' +
+              '<div class="grid grid-cols-3 gap-3">' +
+                '<div class="bg-[#0f172a]/60 p-3 rounded-xl border border-blue-900/30"><span class="text-[10px] font-semibold text-blue-400 block uppercase tracking-wider">Solicitada</span><span class="text-lg font-extrabold text-blue-300">' + escaparHtml(o.cantidadSolicitada) + '</span></div>' +
+                '<div class="bg-[#0f172a]/60 p-3 rounded-xl border border-emerald-900/30"><span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">Recibida</span><span class="text-lg font-extrabold text-emerald-300">' + escaparHtml(o.cantidadRecibida) + '</span></div>' +
+                '<div class="bg-[#0f172a]/60 p-3 rounded-xl border border-cyan-900/40"><span class="text-[10px] font-semibold text-cyan-400 block uppercase tracking-wider">Pendiente</span><span class="text-lg font-extrabold text-cyan-300">' + pendiente + '</span></div>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+      });
+
+      if (tienda.totalAbiertas > tienda.ordenes.length) {
+        cont.innerHTML += '<p class="text-[11px] text-slate-500 text-center">La tienda tiene ' + tienda.totalAbiertas + ' órdenes de hielo abiertas; se muestran las 2 más antiguas.</p>';
+      }
     }
 
     function copiarIdNitroCualquiera(idValue, btnId, textId) {
