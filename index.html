@@ -50,7 +50,7 @@
                 class="w-full px-4 py-3 bg-[#0f172a] border border-slate-600 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none font-medium text-white disabled:opacity-50">
           <option value="">Primero elige tu tienda</option>
         </select>
-        <p class="text-[11px] text-slate-400 mt-3">Se muestra la orden abierta más antigua de la tienda para ese proveedor. <span class="text-cyan-300 font-semibold">Ingresa el hielo en esa orden.</span></p>
+        <p class="text-[11px] text-slate-400 mt-3">Se muestra la orden abierta más antigua de la tienda para ese proveedor. <span class="text-cyan-300 font-semibold">Envía la foto del remito del proveedor para ver el ID Nitro e ingresa el hielo en esa orden.</span></p>
         <p id="lblActualizadoHielo" class="text-[10px] text-slate-500 mt-1"></p>
       </div>
       <div id="divLoadingHielo" class="hidden text-center py-8">
@@ -122,6 +122,7 @@
     var abiertasHielo = null;  // idNitro -> orden de hielo abierta (abiertasPorId del backend), cache compartido
     var promesaAbiertasHielo = null;
     var busquedaActual = 0;
+    var idsDesbloqueados = {}; // idNitro de hielo cuya foto ya se envio en esta sesion -> se muestra el ID
 
     document.getElementById('txtExternalId').addEventListener('keypress', function (e) {
       if (e.key === 'Enter') ejecutarBusqueda(false);
@@ -162,9 +163,18 @@
       
       document.getElementById('divLoading').classList.remove('hidden');
       
+      var idBusqueda = busquedaActual;
+      // En paralelo: si la orden es de hielo, el ID Nitro no se muestra hasta enviar la foto del remito.
+      // Si el endpoint de hielo falla, no se bloquea la busqueda (se muestra sin candado).
+      var promesaHielo = cargarAbiertasHielo().catch(function (err) {
+        console.error('No se pudieron consultar las ordenes de hielo:', err);
+        return {};
+      });
       fetch(`${WEB_APP_URL}?externalId=${encodeURIComponent(idInput)}&refrescar=${forzarRefresco}`)
         .then(response => response.json())
-        .then(response => {
+        .then(response => promesaHielo.then(abiertas => ({ response: response, abiertas: abiertas })))
+        .then(({ response, abiertas }) => {
+          if (idBusqueda !== busquedaActual) return; // ya hay otra busqueda en curso
           document.getElementById('divLoading').classList.add('hidden');
           restablecerBotonActualizar();
 
@@ -177,8 +187,7 @@
               divExito.classList.remove('hidden');
             }
             if (response.data && response.data.length > 0) {
-              mostrarMultiplesDatos(response.data);
-              marcarOrdenesHieloEnBusqueda(response.data, busquedaActual);
+              mostrarMultiplesDatos(response.data, abiertas);
             }
           }
         })
@@ -213,7 +222,8 @@
       div.classList.remove('hidden');
     }
 
-    function mostrarMultiplesDatos(listaOrdenes) {
+    function mostrarMultiplesDatos(listaOrdenes, abiertas) {
+      limpiarTickets('b');
       var contenedor = document.getElementById('contenedorResultados');
       var contador = document.getElementById('lblContador');
       
@@ -261,6 +271,31 @@
           </button>
         ` : '';
 
+        var ordenHielo = (!esTransf && abiertas) ? abiertas[data.idNitro] : null;
+        var claveTicket = 'b' + index;
+        var bloqueIdSecundario = `
+              <div class="border-b border-slate-700/60 pb-3 flex justify-between items-end">
+                <div>
+                  <span class="text-[10px] font-semibold ${esTransf ? 'text-rose-400' : 'text-emerald-400'} block uppercase tracking-wider">${labelSecundario}</span>
+                  <span id="resIdNitro_${index}" class="text-lg font-extrabold ${idNitroColor} font-mono tracking-wide">${valorSecundario}</span>
+                </div>
+                <button onclick="copiarIdNitroCualquiera('${valorSecundario}', 'btnCopiar_${index}', 'txtCopiar_${index}')" id="btnCopiar_${index}" 
+                        class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5">
+                  <span id="txtCopiar_${index}">${esTransf ? 'Copiar SAP' : 'Copiar'}</span>
+                </button>
+              </div>`;
+        var bloqueTicket = '';
+        if (ordenHielo) {
+          contextosTicket[claveTicket] = { tienda: ordenHielo.tienda, proveedor: ordenHielo.proveedor, orden: ordenHielo };
+          bloqueIdSecundario = htmlIdNitroHielo(claveTicket, ordenHielo.idNitro, 'text-lg');
+          bloqueTicket =
+            '<div class="bg-cyan-950/40 border border-cyan-700/60 rounded-xl p-3 text-xs text-cyan-200">' +
+              '🧊 <span class="font-bold">Orden de hielo · ' + escaparHtml(ordenHielo.proveedor) + '.</span> ' +
+              'Adjunta la foto del remito que trae el proveedor para ver el ID Nitro.' +
+            '</div>' +
+            htmlBloqueTicket(claveTicket, 'Adjuntar foto del remito del proveedor');
+        }
+
         var htmlTarjeta = `
           <div class="bg-[#1e293b] rounded-2xl shadow-2xl border ${bordeTarjeta} overflow-hidden transition-all">
             <div class="bg-[#0f172a] px-6 py-4 border-b border-slate-700/80 flex justify-between items-center">
@@ -281,16 +316,7 @@
             </div>
             
             <div class="p-6 grid grid-cols-1 gap-5">
-              <div class="border-b border-slate-700/60 pb-3 flex justify-between items-end">
-                <div>
-                  <span class="text-[10px] font-semibold ${esTransf ? 'text-rose-400' : 'text-emerald-400'} block uppercase tracking-wider">${labelSecundario}</span>
-                  <span id="resIdNitro_${index}" class="text-lg font-extrabold ${idNitroColor} font-mono tracking-wide">${valorSecundario}</span>
-                </div>
-                <button onclick="copiarIdNitroCualquiera('${valorSecundario}', 'btnCopiar_${index}', 'txtCopiar_${index}')" id="btnCopiar_${index}" 
-                        class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5">
-                  <span id="txtCopiar_${index}">${esTransf ? 'Copiar SAP' : 'Copiar'}</span>
-                </button>
-              </div>
+              ${bloqueIdSecundario}
 
               <div class="border-b border-slate-700/60 pb-3">
                 <span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">Tienda Destino</span>
@@ -307,7 +333,7 @@
                   <span class="text-xl font-extrabold ${esTransf ? 'text-rose-300' : 'text-emerald-300'}">${cantRecibidaLimpia}</span>
                 </div>
               </div>
-              <div id="ticketBusqueda_${index}" class="hidden"></div>
+              ${bloqueTicket}
             </div>
           </div>
         `;
@@ -444,11 +470,7 @@
               '</div>' +
             '</div>' +
             '<div class="p-6 grid grid-cols-1 gap-4">' +
-              '<div class="flex justify-between items-end border-b border-slate-700/60 pb-3">' +
-                '<div><span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">ID Nitro (PO_ID)</span>' +
-                '<span class="text-2xl font-extrabold font-mono tracking-wide text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.2)]">' + escaparHtml(o.idNitro) + '</span></div>' +
-                '<button onclick="copiarIdNitroCualquiera(\'' + escaparHtml(o.idNitro) + '\', \'btnHielo_' + i + '\', \'txtHielo_' + i + '\')" id="btnHielo_' + i + '" class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5"><span id="txtHielo_' + i + '">Copiar</span></button>' +
-              '</div>' +
+              htmlIdNitroHielo('h' + i, o.idNitro, 'text-2xl') +
               extId +
               '<div class="text-xs text-slate-300"><span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider mb-0.5">Producto</span>' + escaparHtml(o.productos) + '</div>' +
               '<div class="grid grid-cols-3 gap-3">' +
@@ -456,7 +478,7 @@
                 '<div class="bg-[#0f172a]/60 p-3 rounded-xl border border-emerald-900/30"><span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">Recibida</span><span class="text-lg font-extrabold text-emerald-300">' + escaparHtml(o.cantidadRecibida) + '</span></div>' +
                 '<div class="bg-[#0f172a]/60 p-3 rounded-xl border border-cyan-900/40"><span class="text-[10px] font-semibold text-cyan-400 block uppercase tracking-wider">Pendiente</span><span class="text-lg font-extrabold text-cyan-300">' + pendiente + '</span></div>' +
               '</div>' +
-              htmlBloqueTicket('h' + i, 'Adjuntar foto del ticket del proveedor') +
+              htmlBloqueTicket('h' + i, 'Adjuntar foto del remito del proveedor') +
             '</div>' +
           '</div>';
       });
@@ -566,7 +588,8 @@
           delete fotosTicket[clave];
           document.getElementById('ticketPreview_' + clave).classList.add('hidden');
           document.getElementById('txtFotoTicket_' + clave).innerText = 'Adjuntar otra foto';
-          estadoTicket(clave, 'ok', '✓ Foto enviada a Torre de Control (orden ' + escaparHtml(o.idNitro) + ').');
+          estadoTicket(clave, 'ok', '✓ Foto enviada a Torre de Control. Ya puedes ver el ID Nitro arriba.');
+          desbloquearIdNitro(clave, o.idNitro);
         })
         .catch(function (err) {
           console.error(err);
@@ -595,28 +618,32 @@
       return promesaAbiertasHielo;
     }
 
-    // Si un resultado del buscador es una orden de hielo abierta, le agrega el bloque para la foto del remito
-    function marcarOrdenesHieloEnBusqueda(listaOrdenes, idBusqueda) {
-      limpiarTickets('b');
-      cargarAbiertasHielo()
-        .then(function (abiertas) {
-          if (idBusqueda !== busquedaActual) return; // ya hay otra busqueda en pantalla
-          listaOrdenes.forEach(function (data, index) {
-            var ordenHielo = data.esTransferencia ? null : abiertas[data.idNitro];
-            var cont = document.getElementById('ticketBusqueda_' + index);
-            if (!ordenHielo || !cont) return;
-            var clave = 'b' + index;
-            contextosTicket[clave] = { tienda: ordenHielo.tienda, proveedor: ordenHielo.proveedor, orden: ordenHielo };
-            cont.innerHTML =
-              '<div class="bg-cyan-950/40 border border-cyan-700/60 rounded-xl p-3 text-xs text-cyan-200 mb-1">' +
-                '🧊 <span class="font-bold">Orden de hielo · ' + escaparHtml(ordenHielo.proveedor) + '.</span> ' +
-                'Adjunta la foto del remito que trae el proveedor.' +
-              '</div>' +
-              htmlBloqueTicket(clave, 'Adjuntar foto del remito del proveedor');
-            cont.classList.remove('hidden');
-          });
-        })
-        .catch(function (err) { console.error('No se pudieron consultar las ordenes de hielo:', err); });
+    // ID Nitro de una orden de hielo: con candado hasta enviar la foto del remito (pedido de Kevin)
+    function htmlIdNitroHielo(clave, idNitro, tamano) {
+      return '<div id="idNitroBox_' + clave + '" class="border-b border-slate-700/60 pb-3" data-tamano="' + tamano + '">' +
+          (idsDesbloqueados[idNitro] ? htmlIdNitroVisible(clave, idNitro, tamano) : htmlIdNitroBloqueado()) +
+        '</div>';
+    }
+
+    function htmlIdNitroBloqueado() {
+      return '<span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">ID Nitro (PO_ID)</span>' +
+        '<div class="mt-1 bg-[#0f172a]/80 border border-dashed border-slate-600 rounded-xl px-3 py-2.5 text-xs text-slate-300">' +
+          '🔒 Envía la foto del remito del proveedor (abajo) para ver el ID Nitro.' +
+        '</div>';
+    }
+
+    function htmlIdNitroVisible(clave, idNitro, tamano) {
+      return '<div class="flex justify-between items-end">' +
+          '<div><span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">ID Nitro (PO_ID)</span>' +
+          '<span class="' + tamano + ' font-extrabold font-mono tracking-wide text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.2)]">' + escaparHtml(idNitro) + '</span></div>' +
+          '<button onclick="copiarIdNitroCualquiera(\'' + escaparHtml(idNitro) + '\', \'btnId_' + clave + '\', \'txtId_' + clave + '\')" id="btnId_' + clave + '" class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5"><span id="txtId_' + clave + '">Copiar</span></button>' +
+        '</div>';
+    }
+
+    function desbloquearIdNitro(clave, idNitro) {
+      idsDesbloqueados[idNitro] = true;
+      var box = document.getElementById('idNitroBox_' + clave);
+      if (box) box.innerHTML = htmlIdNitroVisible(clave, idNitro, box.dataset.tamano || 'text-lg');
     }
 
     function copiarIdNitroCualquiera(idValue, btnId, textId) {
