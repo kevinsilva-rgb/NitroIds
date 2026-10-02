@@ -117,7 +117,11 @@
     const HIELO_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxUy3nlvDOEHp20OzHcYJAH2N7f9El1eRjWl3lfVvNMJDw3EYRyz0E6j0dtKtDhHHjY/exec";
     const HIELO_API_URL = HIELO_WEBAPP_URL + "?api=ordenesHielo";
     var datosHielo = null;
-    var fotosTicket = {}; // indice de tarjeta -> { base64, mimeType }
+    var fotosTicket = {};      // clave de tarjeta ('h0' modulo hielo, 'b0' buscador) -> { base64, mimeType }
+    var contextosTicket = {};  // clave de tarjeta -> { tienda, proveedor, orden } que viaja con la foto
+    var abiertasHielo = null;  // idNitro -> orden de hielo abierta (abiertasPorId del backend), cache compartido
+    var promesaAbiertasHielo = null;
+    var busquedaActual = 0;
 
     document.getElementById('txtExternalId').addEventListener('keypress', function (e) {
       if (e.key === 'Enter') ejecutarBusqueda(false);
@@ -143,6 +147,7 @@
       document.getElementById('divExito').classList.add('hidden');
       document.getElementById('lblContador').classList.add('hidden');
       document.getElementById('contenedorResultados').innerHTML = '';
+      busquedaActual++;
       
       if (!idInput && !forzarRefresco) {
         mostrarError("Por favor, ingresa un término de búsqueda.");
@@ -173,6 +178,7 @@
             }
             if (response.data && response.data.length > 0) {
               mostrarMultiplesDatos(response.data);
+              marcarOrdenesHieloEnBusqueda(response.data, busquedaActual);
             }
           }
         })
@@ -301,6 +307,7 @@
                   <span class="text-xl font-extrabold ${esTransf ? 'text-rose-300' : 'text-emerald-300'}">${cantRecibidaLimpia}</span>
                 </div>
               </div>
+              <div id="ticketBusqueda_${index}" class="hidden"></div>
             </div>
           </div>
         `;
@@ -345,6 +352,7 @@
         .then(function (resp) {
           if (resp.error) throw new Error(resp.mensaje);
           datosHielo = resp.tiendas;
+          abiertasHielo = resp.abiertasPorId || {};
           sel.innerHTML = '<option value="">— Elige una tienda —</option>' + datosHielo.map(function (t, i) {
             var total = t.proveedores.reduce(function (acc, p) { return acc + p.totalAbiertas; }, 0);
             return '<option value="' + i + '">' + escaparHtml(t.tienda + ' (' + textoAbiertas(total) + ')') + '</option>';
@@ -398,7 +406,7 @@
       var selProv = document.getElementById('selProveedorHielo');
       var cont = document.getElementById('contenedorHielo');
       cont.innerHTML = '';
-      fotosTicket = {};
+      limpiarTickets('h');
       if (sel.value === '' || selProv.value === '' || !datosHielo) return;
       var tienda = datosHielo[Number(sel.value)];
       var prov = tienda.proveedores[Number(selProv.value)];
@@ -411,6 +419,7 @@
       }
 
       prov.ordenes.forEach(function (o, i) {
+        contextosTicket['h' + i] = { tienda: tienda.tienda, proveedor: prov.proveedor, orden: o };
         var pendiente = Math.max(0, (Number(o.cantidadSolicitada) || 0) - (Number(o.cantidadRecibida) || 0));
         var partes = (o.fechaCreacionMx || '').split(' ');
         var ymd = (partes[0] || '').split('-');
@@ -447,17 +456,7 @@
                 '<div class="bg-[#0f172a]/60 p-3 rounded-xl border border-emerald-900/30"><span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">Recibida</span><span class="text-lg font-extrabold text-emerald-300">' + escaparHtml(o.cantidadRecibida) + '</span></div>' +
                 '<div class="bg-[#0f172a]/60 p-3 rounded-xl border border-cyan-900/40"><span class="text-[10px] font-semibold text-cyan-400 block uppercase tracking-wider">Pendiente</span><span class="text-lg font-extrabold text-cyan-300">' + pendiente + '</span></div>' +
               '</div>' +
-              '<div class="border-t border-slate-700/60 pt-4">' +
-                '<label id="lblFotoTicket_' + i + '" class="w-full cursor-pointer bg-cyan-600 hover:bg-cyan-700 text-white font-semibold px-4 py-3 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 text-sm">' +
-                  '📷 <span id="txtFotoTicket_' + i + '">Adjuntar foto del ticket del proveedor</span>' +
-                  '<input type="file" accept="image/*" class="hidden" onchange="seleccionarFotoTicket(this, ' + i + ')">' +
-                '</label>' +
-                '<div id="ticketPreview_' + i + '" class="hidden mt-3">' +
-                  '<img id="ticketImg_' + i + '" class="rounded-xl max-h-72 mx-auto border border-slate-600" alt="Foto del ticket">' +
-                  '<button onclick="enviarTicketHielo(' + i + ')" id="btnEnviarTicket_' + i + '" class="mt-3 w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-3 rounded-xl shadow-md transition-all active:scale-95 text-sm">Enviar ticket</button>' +
-                '</div>' +
-                '<div id="ticketEstado_' + i + '" class="hidden mt-3 p-3 rounded-xl text-xs font-medium text-center"></div>' +
-              '</div>' +
+              htmlBloqueTicket('h' + i, 'Adjuntar foto del ticket del proveedor') +
             '</div>' +
           '</div>';
       });
@@ -498,46 +497,65 @@
       div.innerHTML = html;
     }
 
-    function seleccionarFotoTicket(input, i) {
-      var archivo = input.files && input.files[0];
-      input.value = '';
-      if (!archivo) return;
-      estadoTicket(i, 'info', 'Preparando foto...');
-      comprimirImagen(archivo, function (dataUrl) {
-        if (!dataUrl) { estadoTicket(i, 'error', '⚠️ No se pudo leer la imagen. Intenta con otra foto.'); return; }
-        fotosTicket[i] = { base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' };
-        document.getElementById('ticketImg_' + i).src = dataUrl;
-        document.getElementById('ticketPreview_' + i).classList.remove('hidden');
-        document.getElementById('txtFotoTicket_' + i).innerText = 'Cambiar foto';
-        document.getElementById('ticketEstado_' + i).classList.add('hidden');
+    // Bloque "adjuntar foto" reutilizable (modulo de hielo y buscador). clave: 'h0', 'b0', ...
+    function htmlBloqueTicket(clave, textoBoton) {
+      return '<div class="border-t border-slate-700/60 pt-4">' +
+          '<label class="w-full cursor-pointer bg-cyan-600 hover:bg-cyan-700 text-white font-semibold px-4 py-3 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 text-sm">' +
+            '📷 <span id="txtFotoTicket_' + clave + '">' + escaparHtml(textoBoton) + '</span>' +
+            '<input type="file" accept="image/*" class="hidden" onchange="seleccionarFotoTicket(this, \'' + clave + '\')">' +
+          '</label>' +
+          '<div id="ticketPreview_' + clave + '" class="hidden mt-3">' +
+            '<img id="ticketImg_' + clave + '" class="rounded-xl max-h-72 mx-auto border border-slate-600" alt="Foto del ticket">' +
+            '<button onclick="enviarTicketHielo(\'' + clave + '\')" id="btnEnviarTicket_' + clave + '" class="mt-3 w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-3 rounded-xl shadow-md transition-all active:scale-95 text-sm">Enviar foto</button>' +
+          '</div>' +
+          '<div id="ticketEstado_' + clave + '" class="hidden mt-3 p-3 rounded-xl text-xs font-medium text-center"></div>' +
+        '</div>';
+    }
+
+    function limpiarTickets(prefijo) {
+      Object.keys(contextosTicket).forEach(function (k) {
+        if (k.indexOf(prefijo) === 0) { delete contextosTicket[k]; delete fotosTicket[k]; }
       });
     }
 
-    function enviarTicketHielo(i) {
-      var foto = fotosTicket[i];
-      var tienda = datosHielo[Number(document.getElementById('selTiendaHielo').value)];
-      var prov = tienda.proveedores[Number(document.getElementById('selProveedorHielo').value)];
-      var o = prov.ordenes[i];
-      if (!foto || !o) return;
-      var btn = document.getElementById('btnEnviarTicket_' + i);
+    function seleccionarFotoTicket(input, clave) {
+      var archivo = input.files && input.files[0];
+      input.value = '';
+      if (!archivo) return;
+      estadoTicket(clave, 'info', 'Preparando foto...');
+      comprimirImagen(archivo, function (dataUrl) {
+        if (!dataUrl) { estadoTicket(clave, 'error', '⚠️ No se pudo leer la imagen. Intenta con otra foto.'); return; }
+        fotosTicket[clave] = { base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' };
+        document.getElementById('ticketImg_' + clave).src = dataUrl;
+        document.getElementById('ticketPreview_' + clave).classList.remove('hidden');
+        document.getElementById('txtFotoTicket_' + clave).innerText = 'Cambiar foto';
+        document.getElementById('ticketEstado_' + clave).classList.add('hidden');
+      });
+    }
+
+    function enviarTicketHielo(clave) {
+      var foto = fotosTicket[clave];
+      var ctx = contextosTicket[clave];
+      if (!foto || !ctx) return;
+      var o = ctx.orden;
+      var btn = document.getElementById('btnEnviarTicket_' + clave);
       btn.disabled = true;
       btn.classList.add('opacity-50');
       btn.innerText = 'Enviando...';
-      estadoTicket(i, 'info', 'Subiendo foto del ticket...');
+      estadoTicket(clave, 'info', 'Subiendo foto...');
 
       // text/plain (default del body string) evita el preflight CORS que Apps Script no responde
       fetch(HIELO_WEBAPP_URL, {
         method: 'POST',
         body: JSON.stringify({
           accion: 'ticketHielo',
-          tienda: tienda.tienda,
-          proveedor: prov.proveedor,
+          tienda: ctx.tienda,
+          proveedor: ctx.proveedor,
           idNitro: o.idNitro,
           externalId: o.externalId,
           estadoPo: o.estadoPo,
           fechaCreacionMx: o.fechaCreacionMx,
           cantidadSolicitada: o.cantidadSolicitada,
-          cantidadRecibida: o.cantidadRecibida,
           fotoBase64: foto.base64,
           mimeType: foto.mimeType
         })
@@ -545,20 +563,60 @@
         .then(function (r) { return r.json(); })
         .then(function (resp) {
           if (resp.error) throw new Error(resp.mensaje);
-          delete fotosTicket[i];
-          document.getElementById('ticketPreview_' + i).classList.add('hidden');
-          document.getElementById('txtFotoTicket_' + i).innerText = 'Adjuntar otra foto';
-          estadoTicket(i, 'ok', '✓ Ticket enviado a Torre de Control (orden ' + escaparHtml(o.idNitro) + ').');
+          delete fotosTicket[clave];
+          document.getElementById('ticketPreview_' + clave).classList.add('hidden');
+          document.getElementById('txtFotoTicket_' + clave).innerText = 'Adjuntar otra foto';
+          estadoTicket(clave, 'ok', '✓ Foto enviada a Torre de Control (orden ' + escaparHtml(o.idNitro) + ').');
         })
         .catch(function (err) {
           console.error(err);
-          estadoTicket(i, 'error', '⚠️ No se pudo enviar el ticket. Vuelve a intentar; si persiste, comunícate con la <span class="font-semibold text-white">Torre de Control</span>.');
+          estadoTicket(clave, 'error', '⚠️ No se pudo enviar la foto. Vuelve a intentar; si persiste, comunícate con la <span class="font-semibold text-white">Torre de Control</span>.');
         })
         .finally(function () {
           btn.disabled = false;
           btn.classList.remove('opacity-50');
-          btn.innerText = 'Enviar ticket';
+          btn.innerText = 'Enviar foto';
         });
+    }
+
+    // Ordenes de hielo abiertas (mismo endpoint que el modulo), una sola descarga compartida
+    function cargarAbiertasHielo() {
+      if (abiertasHielo) return Promise.resolve(abiertasHielo);
+      if (!promesaAbiertasHielo) {
+        promesaAbiertasHielo = fetch(HIELO_API_URL + '&refrescar=false')
+          .then(function (r) { return r.json(); })
+          .then(function (resp) {
+            if (resp.error) throw new Error(resp.mensaje);
+            abiertasHielo = resp.abiertasPorId || {};
+            return abiertasHielo;
+          })
+          .finally(function () { promesaAbiertasHielo = null; });
+      }
+      return promesaAbiertasHielo;
+    }
+
+    // Si un resultado del buscador es una orden de hielo abierta, le agrega el bloque para la foto del remito
+    function marcarOrdenesHieloEnBusqueda(listaOrdenes, idBusqueda) {
+      limpiarTickets('b');
+      cargarAbiertasHielo()
+        .then(function (abiertas) {
+          if (idBusqueda !== busquedaActual) return; // ya hay otra busqueda en pantalla
+          listaOrdenes.forEach(function (data, index) {
+            var ordenHielo = data.esTransferencia ? null : abiertas[data.idNitro];
+            var cont = document.getElementById('ticketBusqueda_' + index);
+            if (!ordenHielo || !cont) return;
+            var clave = 'b' + index;
+            contextosTicket[clave] = { tienda: ordenHielo.tienda, proveedor: ordenHielo.proveedor, orden: ordenHielo };
+            cont.innerHTML =
+              '<div class="bg-cyan-950/40 border border-cyan-700/60 rounded-xl p-3 text-xs text-cyan-200 mb-1">' +
+                '🧊 <span class="font-bold">Orden de hielo · ' + escaparHtml(ordenHielo.proveedor) + '.</span> ' +
+                'Adjunta la foto del remito que trae el proveedor.' +
+              '</div>' +
+              htmlBloqueTicket(clave, 'Adjuntar foto del remito del proveedor');
+            cont.classList.remove('hidden');
+          });
+        })
+        .catch(function (err) { console.error('No se pudieron consultar las ordenes de hielo:', err); });
     }
 
     function copiarIdNitroCualquiera(idValue, btnId, textId) {
