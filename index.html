@@ -50,7 +50,7 @@
                 class="w-full px-4 py-3 bg-[#0f172a] border border-slate-600 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none font-medium text-white disabled:opacity-50">
           <option value="">Primero elige tu tienda</option>
         </select>
-        <p class="text-[11px] text-slate-400 mt-3">Se muestra la orden abierta más antigua de la tienda para ese proveedor. <span class="text-cyan-300 font-semibold">Envía la foto del remito del proveedor para ver el ID Nitro e ingresa el hielo en esa orden.</span></p>
+        <p class="text-[11px] text-slate-400 mt-3">Se muestra la orden vigente más antigua de la tienda para ese proveedor (vigencia: 14 días desde su creación). <span class="text-cyan-300 font-semibold">Envía la foto del remito del proveedor para ver el ID Nitro e ingresa el hielo en esa orden.</span></p>
         <p id="lblActualizadoHielo" class="text-[10px] text-slate-500 mt-1"></p>
       </div>
       <div id="divLoadingHielo" class="hidden text-center py-8">
@@ -285,7 +285,21 @@
                 </button>
               </div>`;
         var bloqueTicket = '';
-        if (ordenHielo) {
+        if (ordenHielo && !ordenHielo.vigente) {
+          // Orden de hielo vencida (Kevin: vigencia 14 dias desde la creacion): no se muestra su ID ni se pide foto
+          bloqueIdSecundario =
+            '<div class="border-b border-slate-700/60 pb-3">' +
+              '<span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">ID Nitro (PO_ID)</span>' +
+              '<div class="mt-1 bg-red-950/40 border border-red-800/60 rounded-xl px-3 py-2.5 text-xs text-red-300">' +
+                '⛔ Orden de hielo <span class="font-bold">vencida</span>: se creó hace ' + escaparHtml(ordenHielo.diasDesdeCreacion) + ' días (vigencia: 14 días). No ingreses hielo en esta orden.' +
+              '</div>' +
+            '</div>';
+          bloqueTicket =
+            '<div class="bg-cyan-950/40 border border-cyan-700/60 rounded-xl p-3 text-xs text-cyan-200">' +
+              '🧊 <span class="font-bold">Orden de hielo · ' + escaparHtml(ordenHielo.proveedor) + '.</span> ' +
+              'Entra a <button data-tienda="' + escaparHtml(ordenHielo.tienda) + '" data-proveedor="' + escaparHtml(ordenHielo.proveedor) + '" onclick="irAOrdenesHielo(this.dataset.tienda, this.dataset.proveedor)" class="underline font-bold text-cyan-300">🧊 Órdenes de Hielo</button> para ver la orden vigente de tu tienda.' +
+            '</div>';
+        } else if (ordenHielo) {
           contextosTicket[claveTicket] = { tienda: ordenHielo.tienda, proveedor: ordenHielo.proveedor, orden: ordenHielo };
           bloqueIdSecundario = htmlIdNitroHielo(claveTicket, ordenHielo.idNitro, 'text-lg');
           var yaTieneFoto = !!idsDesbloqueados[ordenHielo.idNitro];
@@ -357,8 +371,22 @@
       if (mostrarHielo && !datosHielo) cargarOrdenesHielo(false);
     }
 
+    // Desde el buscador (orden vencida): abre el modulo de hielo con la tienda y el proveedor ya elegidos
+    function irAOrdenesHielo(tienda, proveedor) {
+      if (document.getElementById('vistaHielo').classList.contains('hidden')) alternarVistaHielo();
+      var intentos = 0;
+      (function seleccionar() {
+        var sel = document.getElementById('selTiendaHielo');
+        if (!datosHielo || sel.disabled) { if (intentos++ < 100) setTimeout(seleccionar, 300); return; }
+        var idx = datosHielo.findIndex(function (t) { return t.tienda === tienda; });
+        if (idx < 0) return;
+        sel.value = idx;
+        elegirTiendaHielo(proveedor);
+      })();
+    }
+
     function textoAbiertas(n) {
-      return n ? n + (n === 1 ? ' abierta' : ' abiertas') : 'sin órdenes abiertas';
+      return n ? n + (n === 1 ? ' vigente' : ' vigentes') : 'sin órdenes vigentes';
     }
 
     function cargarOrdenesHielo(forzarRefresco) {
@@ -441,7 +469,8 @@
 
       if (!prov.ordenes.length) {
         cont.innerHTML = '<div class="bg-amber-950/40 border border-amber-800/60 p-4 rounded-xl text-amber-300 text-sm font-medium text-center shadow-lg">' +
-          '⚠️ <span class="font-bold">' + escaparHtml(tienda.tienda) + '</span> no tiene órdenes abiertas de <span class="font-bold">' + escaparHtml(prov.proveedor) + '</span>.<br>' +
+          '⚠️ <span class="font-bold">' + escaparHtml(tienda.tienda) + '</span> no tiene órdenes vigentes de <span class="font-bold">' + escaparHtml(prov.proveedor) + '</span>.<br>' +
+          (prov.vencidas ? '<span class="text-xs opacity-80 font-normal">Tiene ' + prov.vencidas + (prov.vencidas === 1 ? ' orden abierta vencida' : ' órdenes abiertas vencidas') + ' (más de 14 días desde su creación), en las que no se debe ingresar hielo.</span><br>' : '') +
           '<span class="text-xs opacity-80 font-normal">Comunícate con la <span class="font-semibold text-white">Torre de Control</span> antes de ingresar hielo.</span></div>';
         return;
       }
@@ -487,7 +516,7 @@
       });
 
       if (prov.totalAbiertas > prov.ordenes.length) {
-        cont.innerHTML += '<p class="text-[11px] text-slate-500 text-center">La tienda tiene ' + prov.totalAbiertas + ' órdenes abiertas de ' + escaparHtml(prov.proveedor) + '; se muestra la más antigua.</p>';
+        cont.innerHTML += '<p class="text-[11px] text-slate-500 text-center">La tienda tiene ' + prov.totalAbiertas + ' órdenes de ' + escaparHtml(prov.proveedor) + ' vigentes; se muestra la más antigua.</p>';
       }
     }
 
