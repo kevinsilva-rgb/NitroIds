@@ -5,7 +5,8 @@ Página estática (un solo `index.html`) que usan tiendas y Torre de Control par
 1. **Buscar una orden de compra o albarán** y obtener su **ID Nitro (PO_ID)** —o el **SAP ID** si es
    una transferencia— junto con tienda, estado y cantidades.
 2. **Órdenes de Hielo:** saber en qué orden abierta debe ingresar el hielo cada tienda, según el
-   proveedor (Hielo Club / Hielo Fiesta / Iglú), y enviar la foto del ticket del proveedor.
+   proveedor (= marca de hielo: Hielo Club, Hielo Fiesta, Iglú, KLYR, Yely, Pingüino…, de cualquier proveedor
+   Turbo desde 2026-10-06), y enviar la foto del ticket del proveedor.
 
 - **Para quién:** personal de tiendas Chedraui (Turbo) y Torre de Control CEDIS MX.
 - **URL:** https://kevinsilva-rgb.github.io/NitroIds/ (GitHub Pages, rama `main`; verificada HTTP 200 el 2026-09-30).
@@ -21,7 +22,7 @@ Página estática (un solo `index.html`) que usan tiendas y Torre de Control par
 ```
 index.html (GitHub Pages)
    ├── Buscador ──fetch GET──►  Web App "búsqueda" (AKfycbyar0C3…)  ──► Redash (queries sin confirmar)
-   └── Hielo ─────fetch GET──►  Web App Control Hielo Chedraui (AKfycbxUy3…) ?api=ordenesHielo ──► Redash 138487
+   └── Hielo ─────fetch GET──►  Web App Control Hielo Chedraui (AKfycbxUy3…) ?api=ordenesHielo ──► Redash 138873
                   fetch POST─►  mismo Web App (accion=ticketHielo) ──► Drive + Sheet "Ticket Hielo"
 ```
 
@@ -84,9 +85,9 @@ Por eso no se guardó su SQL en `queries/`.
 
 | ID | Nombre en Redash | DS | Granularidad | Filtros | Columnas |
 |---|---|---|---|---|---|
-| **138487** | NitroIds - Ordenes de hielo abiertas por tienda y proveedor (TIENDAS CHEDRAUI) | 10271 (MySQL turbo-po-savvy-ms) | 1 fila por tienda × proveedor (marca) × PO abierta; más filas "catálogo" con `po_id` NULL, una por tienda | Proveedor Turbo `TIENDAS CHEDRAUI`; estado `SENT` o `AT_STORE`; EAN de hielo `7501124500023` (Hielo Club), `7501012700009` (Hielo Fiesta), `7501103700000` (Iglu); almacenes sin "INACTIVE"; `HAVING Σ quantity > Σ received` (con hielo pendiente). Catálogo de tiendas = tiendas con órdenes de hielo en los últimos 90 días | `tienda, proveedor, po_id, external_id, estado, fecha_creacion_mx, productos_hielo, cantidad_solicitada, cantidad_recibida` |
+| **138873** (desde 2026-10-06; antes 138487) | Ordenes de hielo - todos los proveedores y tiendas (90 dias + abiertas) | 10271 (MySQL turbo-po-savvy-ms) | 1 fila por PO × producto de hielo (la misma query que el dashboard de Control Hielo) | Producto con "hielo" en el nombre; todos los proveedores salvo "FABIANA prueba"; creadas en 90 días o todavía `SENT`/`AT_STORE`. El backend filtra abiertas (`SENT`/`AT_STORE` con Σ solicitado > Σ recibido), salta almacenes "INACTIVE" y agrupa por marca (`marcaHielo_`). Catálogo = tiendas y marcas de la query | `po_id, external_id (External ID o SAP ID), tienda, proveedor, estado, ean, producto, cantidad_solicitada, cantidad_recibida, fecha_creacion_mx, …` |
 
-SQL vigente: [`queries/138487-nitroids-ordenes-de-hielo-abiertas-por-tienda-y-proveedor-ti.sql`](queries/).
+SQL vigente: [`queries/138873-ordenes-de-hielo-todos-los-proveedores-y-tiendas.sql`](queries/) (copia; la fuente de verdad está en el repo de Control Hielo).
 Sin schedule en Redash. El backend acepta resultados de hasta **5 min** (`max_age 300`); con
 `refrescar=true` fuerza re-ejecución (`max_age 0`).
 
@@ -115,9 +116,11 @@ cantidadSolicitada, cantidadRecibida }] }] }] }`.
 - `cantidadRecibida` vacía o "N/A" se muestra como `0`.
 
 ### Órdenes de hielo (definiciones de Kevin, 2026-09-28)
-- Solo órdenes del proveedor Turbo **TIENDAS CHEDRAUI** (no proveedores directos).
+- Desde 2026-10-06: **todos los proveedores** Turbo (antes solo TIENDAS CHEDRAUI).
 - **Abierta** = `SENT` o `AT_STORE` con hielo pendiente de recibir (`PARTIAL_DELIVERY` no cuenta).
-- **"Proveedor"** = marca del producto de hielo (Hielo Club / Hielo Fiesta / Iglú, por EAN).
+- **"Proveedor"** = marca del producto de hielo, por EAN (Hielo Club, Hielo Fiesta, Iglú, KLYR, Yely, Pingüino,
+  Tun Ha, Stark, Cristalito…). Un Hielo Club por Chedraui y uno directo caen juntos (decisión de Kevin,
+  2026-10-06). Cada tienda ve solo las marcas que pidió en 90 días.
 - Flujo: tienda → proveedor → se muestra **solo la orden abierta más antigua** (por fecha de creación
   y luego PO_ID), etiquetada "Ingresar aquí · la más antigua". Si hay más, se avisa "La tienda tiene N
   órdenes abiertas de X; se muestra la más antigua".
