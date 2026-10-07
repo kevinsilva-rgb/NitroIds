@@ -32,6 +32,8 @@ CONTROL_HIELO_URL = ("https://script.google.com/macros/s/"
                      "AKfycbxUy3nlvDOEHp20OzHcYJAH2N7f9El1eRjWl3lfVvNMJDw3EYRyz0E6j0dtKtDhHHjY/exec")
 SHEET_TICKETS_URL = "https://docs.google.com/spreadsheets/d/1JB-eKW2W8zcHUeBvBFKmyb873KRWxXspGE0fQMor4C0/edit"
 NITROIDS_URL = "https://kevinsilva-rgb.github.io/NitroIds/"
+DASH_URL = ("https://script.google.com/macros/s/"
+            "AKfycbzrQM4Gzr_SfLHss2pD-MiWXVL_GVFazwIMQn7bm1T0mKf5V5CvQ17lbTQC8vt8mmMp-Q/exec")  # Dash-Hielo-Trazabilidad
 CDMX = datetime.timezone(datetime.timedelta(hours=-6))  # México sin horario de verano desde 2022
 
 
@@ -94,7 +96,8 @@ def armar_html(fecha, filas, sin_foto):
 <h2 style="margin:0 0 8px">🧊 Ingresos de hielo sin foto del remito · {fecha_txt}</h2>
 <p style="margin:0 0 12px;font-size:14px">{resumen}</p>
 {tabla}
-<p style="margin:16px 0 0;font-size:11px;color:#64748b">
+<p style="margin:14px 0 0;font-size:13px">📊 <a href="{DASH_URL}">Ver el dash de trazabilidad</a> (histórico por día, tienda y orden)</p>
+<p style="margin:12px 0 0;font-size:11px;color:#64748b">
 Ingreso = recepción en Nitro terminada ese día (hora CDMX) como DELIVERED o PARTIAL_DELIVERED con hielo recibido &gt; 0,
 todos los proveedores. Foto = el ID Nitro aparece en el
 <a href="{SHEET_TICKETS_URL}">sheet Ticket Hielo</a> (cualquier fecha). ·
@@ -107,7 +110,8 @@ SLACK_MAX = 4800  # límite de Slack: 5000 caracteres por bloque de texto
 
 def armar_slack(fecha, filas, sin_foto):
     fecha_txt = datetime.date.fromisoformat(fecha).strftime("%d/%m/%Y")
-    pie = (f"\n_Ingreso = recepción en Nitro terminada ese día (hora CDMX), entrega total o parcial con hielo "
+    pie = (f"\n📊 [Ver el dash de trazabilidad (histórico por día, tienda y orden)]({DASH_URL})\n"
+           f"\n_Ingreso = recepción en Nitro terminada ese día (hora CDMX), entrega total o parcial con hielo "
            f"recibido, todos los proveedores. Con foto = el ID Nitro está en el "
            f"[sheet Ticket Hielo]({SHEET_TICKETS_URL}). · [NitroIds]({NITROIDS_URL})_")
     titulo = f"**🧊 Ingresos de hielo sin foto del remito · {fecha_txt}**\n"
