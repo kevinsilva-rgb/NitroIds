@@ -273,6 +273,7 @@
 
         var ordenHielo = (!esTransf && abiertas) ? abiertas[data.idNitro] : null;
         var claveTicket = 'b' + index;
+        var ocultarExterno = !!(ordenHielo && ordenHielo.vigente && externoOculto(data.externalId, ordenHielo.idNitro));
         var bloqueIdSecundario = `
               <div class="border-b border-slate-700/60 pb-3 flex justify-between items-end">
                 <div>
@@ -320,7 +321,7 @@
                   ${badgeTransferencia}
                 </div>
                 <div class="flex items-center gap-3">
-                  <h2 class="text-lg font-bold font-mono ${tituloColor}">${data.externalId}</h2>
+                  <h2 id="extIdBox_${claveTicket}" data-modo="titulo" class="text-lg font-bold font-mono ${tituloColor}">${ocultarExterno ? '<span class="text-sm font-sans font-semibold text-slate-400">🔒 Se muestra al enviar la foto</span>' : data.externalId}</h2>
                   ${botonCopiarSuperior}
                 </div>
               </div>
@@ -484,10 +485,8 @@
         var borde = 'border-cyan-500/80 shadow-cyan-950/30';
         var etiqueta = '<span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-widest">Ingresar aquí · la más antigua</span>';
         var extId = o.externalId
-          ? '<div class="flex justify-between items-end border-b border-slate-700/60 pb-3">' +
-              '<div><span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">External ID (albarán / OC)</span>' +
-              '<span class="text-base font-bold font-mono text-blue-300">' + escaparHtml(o.externalId) + '</span></div>' +
-              '<button onclick="copiarIdNitroCualquiera(\'' + escaparHtml(o.externalId) + '\', \'btnHieloExt_' + i + '\', \'txtHieloExt_' + i + '\')" id="btnHieloExt_' + i + '" class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5"><span id="txtHieloExt_' + i + '">Copiar</span></button>' +
+          ? '<div id="extIdBox_h' + i + '" data-modo="bloque" class="border-b border-slate-700/60 pb-3">' +
+              (externoOculto(o.externalId, o.idNitro) ? htmlExtIdBloqueado() : htmlExtIdVisible('h' + i, o.externalId)) +
             '</div>'
           : '';
 
@@ -678,10 +677,37 @@
       (ids || []).forEach(function (id) { idsDesbloqueados[id] = true; });
     }
 
+    // Kevin: si el External ID NO inicia con 7, tampoco se muestra hasta enviar la foto (los que inician con 7 si)
+    function externoOculto(externalId, idNitro) {
+      return !!externalId && String(externalId).trim().charAt(0) !== '7' && !idsDesbloqueados[idNitro];
+    }
+
+    function htmlExtIdBloqueado() {
+      return '<span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">External ID (albarán / OC)</span>' +
+        '<div class="mt-1 bg-[#0f172a]/80 border border-dashed border-slate-600 rounded-xl px-3 py-2.5 text-xs text-slate-300">' +
+          '🔒 Envía la foto del remito del proveedor (abajo) para ver el External ID.' +
+        '</div>';
+    }
+
+    function htmlExtIdVisible(clave, externalId) {
+      return '<div class="flex justify-between items-end">' +
+          '<div><span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">External ID (albarán / OC)</span>' +
+          '<span class="text-base font-bold font-mono text-blue-300">' + escaparHtml(externalId) + '</span></div>' +
+          '<button onclick="copiarIdNitroCualquiera(\'' + escaparHtml(externalId) + '\', \'btnExt_' + clave + '\', \'txtExt_' + clave + '\')" id="btnExt_' + clave + '" class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5"><span id="txtExt_' + clave + '">Copiar</span></button>' +
+        '</div>';
+    }
+
     function desbloquearIdNitro(clave, idNitro) {
       idsDesbloqueados[idNitro] = true;
       var box = document.getElementById('idNitroBox_' + clave);
       if (box) box.innerHTML = htmlIdNitroVisible(clave, idNitro, box.dataset.tamano || 'text-lg');
+      // External ID que estaba oculto (no inicia con 7)
+      var ctx = contextosTicket[clave];
+      var ext = document.getElementById('extIdBox_' + clave);
+      if (ext && ctx && ctx.orden.externalId) {
+        if (ext.dataset.modo === 'titulo') ext.textContent = ctx.orden.externalId;
+        else ext.innerHTML = htmlExtIdVisible(clave, ctx.orden.externalId);
+      }
     }
 
     function copiarIdNitroCualquiera(idValue, btnId, textId) {
