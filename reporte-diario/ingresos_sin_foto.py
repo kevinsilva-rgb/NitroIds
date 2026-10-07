@@ -10,8 +10,9 @@ Fuentes:
   - Fotos: sheet "Ticket Hielo" vía el Web App de Control Hielo (`?api=idsConFoto`).
 
 Salida:
-  - salidas/ingresos_sin_foto_<fecha>.html  (cuerpo del correo)
-  - stdout: JSON con fecha, totales, asunto y ruta del HTML (lo lee la tarea programada para enviar el correo)
+  - salidas/ingresos_sin_foto_<fecha>.html      (cuerpo del correo a Kevin)
+  - salidas/ingresos_sin_foto_<fecha>.slack.md  (mensaje para el canal privado #hielo-ingresos-sin-foto)
+  - stdout: JSON con fecha, totales, asunto y rutas (lo lee la tarea programada para enviar correo y Slack)
 Sale con código != 0 si no pudo armar el reporte (la tarea avisa por correo del error).
 """
 import argparse
@@ -101,6 +102,37 @@ todos los proveedores. Foto = el ID Nitro aparece en el
 </p></div>"""
 
 
+SLACK_MAX = 4800  # límite de Slack: 5000 caracteres por bloque de texto
+
+
+def armar_slack(fecha, filas, sin_foto):
+    fecha_txt = datetime.date.fromisoformat(fecha).strftime("%d/%m/%Y")
+    pie = (f"\n_Ingreso = recepción en Nitro terminada ese día (hora CDMX), entrega total o parcial con hielo "
+           f"recibido, todos los proveedores. Con foto = el ID Nitro está en el "
+           f"[sheet Ticket Hielo]({SHEET_TICKETS_URL}). · [NitroIds]({NITROIDS_URL})_")
+    titulo = f"**🧊 Ingresos de hielo sin foto del remito · {fecha_txt}**\n"
+    if not sin_foto:
+        cuerpo = (f"✅ Las **{len(filas)}** órdenes de hielo con ingreso tienen foto del remito.\n" if filas
+                  else "No hubo órdenes de hielo con ingreso en Nitro.\n")
+        return titulo + cuerpo + pie
+    limpia = lambda v: str(v or "—").replace("|", "/")
+    encabezado = (titulo + f"**{len(sin_foto)} de {len(filas)}** órdenes con ingreso **no tienen foto del remito**.\n\n"
+                  "| Tienda | Proveedor | ID Nitro | External ID | Hora | Unid. |\n|---|---|---|---|---|---|\n")
+    lineas = []
+    for r in sin_foto:
+        lineas.append(f"| {limpia(r.get('tienda'))} | {limpia(r.get('proveedor'))} | **{r['po_id']}** | "
+                      f"{limpia(r.get('external_id'))} | {(r.get('ingreso_mx') or '')[11:16]} | "
+                      f"{numero(r.get('unidades_hielo_recibidas'))} |\n")
+    texto = encabezado
+    for i, linea in enumerate(lineas):
+        resto = len(lineas) - i
+        aviso = f"\n_… y {resto} más (detalle completo en el correo del reporte)._\n"
+        if len(texto) + len(linea) + len(aviso) + len(pie) > SLACK_MAX:
+            return texto + aviso + pie
+        texto += linea
+    return texto + pie
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fecha", help="YYYY-MM-DD (default: ayer en hora CDMX)")
@@ -115,12 +147,15 @@ def main():
     ruta = os.path.join(AQUI, "salidas", f"ingresos_sin_foto_{fecha}.html")
     with open(ruta, "w") as f:
         f.write(armar_html(fecha, filas, sin_foto))
+    ruta_slack = os.path.join(AQUI, "salidas", f"ingresos_sin_foto_{fecha}.slack.md")
+    with open(ruta_slack, "w") as f:
+        f.write(armar_slack(fecha, filas, sin_foto))
 
     fecha_txt = datetime.date.fromisoformat(fecha).strftime("%d/%m/%Y")
     asunto = (f"🧊 Hielo sin foto del remito {fecha_txt}: {len(sin_foto)} de {len(filas)} ingresos"
               if sin_foto else f"🧊 Hielo {fecha_txt}: todos los ingresos tienen foto ({len(filas)})")
     print(json.dumps({"fecha": fecha, "ingresos": len(filas), "con_foto": len(filas) - len(sin_foto),
-                      "sin_foto": len(sin_foto), "asunto": asunto, "html": ruta}, ensure_ascii=False))
+                      "sin_foto": len(sin_foto), "asunto": asunto, "html": ruta, "slack": ruta_slack}, ensure_ascii=False))
 
 
 if __name__ == "__main__":
