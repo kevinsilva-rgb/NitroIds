@@ -170,26 +170,37 @@
         console.error('No se pudieron consultar las ordenes de hielo:', err);
         return {};
       });
-      fetch(`${WEB_APP_URL}?externalId=${encodeURIComponent(idInput)}&refrescar=${forzarRefresco}`)
-        .then(response => response.json())
-        .then(response => promesaHielo.then(abiertas => ({ response: response, abiertas: abiertas })))
-        .then(({ response, abiertas }) => {
+      // Busqueda original de NitroIds + busqueda en la query de hielo 138873 (Control Hielo ?api=buscarHielo), que
+      // trae ordenes de hielo que la original no encuentra (p. ej. externos que no inician con 7). Si la de hielo
+      // falla, se muestra solo la original.
+      var promesaBuscarHielo = fetch(HIELO_WEBAPP_URL + '?api=buscarHielo&externalId=' + encodeURIComponent(idInput) + '&refrescar=' + forzarRefresco)
+        .then(function (r) { return r.json(); })
+        .then(function (resp) { if (resp.error) throw new Error(resp.mensaje); return resp.data || []; })
+        .catch(function (err) { console.error('No se pudo buscar en ordenes de hielo:', err); return []; });
+      var promesaOriginal = fetch(`${WEB_APP_URL}?externalId=${encodeURIComponent(idInput)}&refrescar=${forzarRefresco}`)
+        .then(response => response.json());
+      Promise.all([promesaOriginal, promesaBuscarHielo, promesaHielo])
+        .then(([response, datosHielo138873, abiertas]) => {
           if (idBusqueda !== busquedaActual) return; // ya hay otra busqueda en curso
           document.getElementById('divLoading').classList.add('hidden');
           restablecerBotonActualizar();
 
-          if (response.error) {
-            mostrarError(response.mensaje);
-          } else {
-            if (response.mensajeRefresco) {
-              var divExito = document.getElementById('divExito');
-              divExito.innerText = "✓ " + response.mensajeRefresco;
-              divExito.classList.remove('hidden');
-            }
-            if (response.data && response.data.length > 0) {
-              mostrarMultiplesDatos(response.data, abiertas);
-            }
+          // Juntar sin duplicar por ID Nitro (gana el resultado del buscador original)
+          var datos = response.error ? [] : (response.data || []).slice();
+          var vistos = {};
+          datos.forEach(function (d) { if (d.idNitro !== null && d.idNitro !== undefined) vistos[d.idNitro] = true; });
+          datosHielo138873.forEach(function (d) { if (!vistos[d.idNitro]) { vistos[d.idNitro] = true; datos.push(d); } });
+
+          if (!datos.length) {
+            if (response.error) mostrarError(response.mensaje);
+            return;
           }
+          if (response.mensajeRefresco) {
+            var divExito = document.getElementById('divExito');
+            divExito.innerText = "✓ " + response.mensajeRefresco;
+            divExito.classList.remove('hidden');
+          }
+          mostrarMultiplesDatos(datos, abiertas);
         })
         .catch(err => {
           document.getElementById('divLoading').classList.add('hidden');
