@@ -1,28 +1,38 @@
--- Ingresos de hielo en Nitro desde el 29/09/2026 (lanzamiento de la foto del remito en NitroIds), maximo 60 dias, una fila por orden x dia de ingreso (hora CDMX).
--- Misma regla que ingresos_hielo.sql (reporte diario): recepcion terminada en DELIVERED / PARTIAL_DELIVERED con
--- hielo recibido > 0, todos los proveedores, sin paletas, sin "FABIANA prueba" ni tiendas INACTIVE.
--- Guardada en Redash como query (ver README) para el dash de trazabilidad (Control Hielo ?api=trazabilidadFotos).
+-- Ingresos de hielo en Nitro desde el 29/09/2026 (lanzamiento de la foto del remito en NitroIds), maximo 60 dias, una fila
+-- por orden x dia de ingreso (hora CDMX). Guardada en Redash como query 138957 para el dash de trazabilidad
+-- (Control Hielo ?api=trazabilidadFotos). Misma regla que ingresos_hielo.sql (reporte diario):
+-- Ingreso = la tienda hizo la recepcion en Nitro (turbo_reception_order_ms.reception_order_execution) con hielo recibido > 0
+--   en esa ejecucion (reception_order_execution_product.quantity), recepcion no CANCELED, todos los proveedores.
+-- Fecha/hora del ingreso = hora de la foto del remito en Nitro (reception_order_execution_document.reception_invoice, UTC
+--   -> CDMX); si no hay documento, la hora de la ejecucion. NO se usa reception_order.ended_at: puede ser dias despues
+--   (cierre automatico), p. ej. Sauz 327707: foto 03/10 11:28, ended_at 06/10 00:10. (Cambio pedido por Kevin 2026-10-08.)
+-- remito_nitro_url = PDF que arma Nitro al cerrar la recepcion con la foto del remito (S3 turbo-data-adapter-mx).
+-- Hielo = producto con "hielo" en el nombre, sin paletas. Fuera "FABIANA prueba" y tiendas INACTIVE.
 SELECT
-  DATE_FORMAT(CONVERT_TZ(R.ended_at, '+00:00', '-06:00'), '%Y-%m-%d') AS dia,
+  DATE_FORMAT(CONVERT_TZ(COALESCE(D.reception_invoice, E.created_at), '+00:00', '-06:00'), '%Y-%m-%d') AS dia,
   A.id AS po_id,
   COALESCE(NULLIF(A.ingress_order_external_id, ''), NULLIF(A.sap_id, '')) AS external_id,
   W.name AS tienda,
   S.business_name AS proveedor,
-  DATE_FORMAT(CONVERT_TZ(MAX(R.ended_at), '+00:00', '-06:00'), '%Y-%m-%d %H:%i') AS ingreso_mx,
+  GROUP_CONCAT(DISTINCT St.status_name SEPARATOR ', ') AS estado_recepcion,
+  DATE_FORMAT(CONVERT_TZ(MIN(COALESCE(D.reception_invoice, E.created_at)), '+00:00', '-06:00'), '%Y-%m-%d %H:%i') AS ingreso_mx,
   GROUP_CONCAT(DISTINCT P.name SEPARATOR ' | ') AS productos_hielo,
-  SUM(RP.received) AS unidades_hielo_recibidas
+  SUM(EP.quantity) AS unidades_hielo_recibidas,
+  MIN(NULLIF(D.url, '')) AS remito_nitro_url
 FROM `turbo_reception_order_ms`.reception_order R
 JOIN `turbo_reception_order_ms`.status St ON St.id = R.status_id
-JOIN `turbo_reception_order_ms`.reception_order_product RP ON RP.reception_order_id = R.id
+JOIN `turbo_reception_order_ms`.reception_order_execution E ON E.reception_order_id = R.id
+LEFT JOIN `turbo_reception_order_ms`.reception_order_execution_document D ON D.reception_order_execution_id = E.id
+JOIN `turbo_reception_order_ms`.reception_order_execution_product EP ON EP.reception_order_execution_id = E.id
 JOIN purchase_order A ON A.id = R.purchase_order_id
 LEFT JOIN `turbo-sync`.warehouse W ON W.id = A.warehouse_id
 LEFT JOIN `turbo-sync`.supplier S ON S.id = A.supplier_id
-LEFT JOIN `turbo-sync`.product P ON P.id = RP.product_id
-WHERE R.ended_at >= GREATEST(DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 DAY), '2026-09-29 06:00:00')  -- 29/09 00:00 CDMX
-  AND St.status_name IN ('DELIVERED', 'PARTIAL_DELIVERED')
+LEFT JOIN `turbo-sync`.product P ON P.id = EP.product_id
+WHERE COALESCE(D.reception_invoice, E.created_at) >= GREATEST(DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 DAY), '2026-09-29 06:00:00')  -- 29/09 00:00 CDMX
+  AND St.status_name <> 'CANCELED'
   AND LOWER(P.name) LIKE '%hielo%' AND LOWER(P.name) NOT LIKE '%paleta%'
   AND COALESCE(S.business_name, '') <> 'FABIANA prueba'
   AND COALESCE(W.name, '') NOT LIKE '%INACTIVE%'
 GROUP BY dia, A.id, external_id, W.name, S.business_name
-HAVING SUM(RP.received) > 0
-ORDER BY dia, W.name
+HAVING SUM(EP.quantity) > 0
+ORDER BY dia, W.name, ingreso_mx
