@@ -1,4 +1,4 @@
--- Ingresos de hielo en Nitro desde el 29/09/2026 (lanzamiento de la foto del remito en NitroIds), maximo 60 dias, una fila
+-- Ingresos de hielo en Nitro desde el 01/08/2026 (trazabilidad desde agosto: Nitro trae el remito en todas; Kevin 2026-10-08), una fila
 -- por orden x dia de ingreso (hora CDMX). Guardada en Redash como query 138957 para el dash de trazabilidad
 -- (Control Hielo ?api=trazabilidadFotos). Misma regla que ingresos_hielo.sql (reporte diario):
 -- Ingreso = la tienda hizo la recepcion en Nitro (turbo_reception_order_ms.reception_order_execution) con hielo recibido > 0
@@ -28,7 +28,7 @@ JOIN purchase_order A ON A.id = R.purchase_order_id
 LEFT JOIN `turbo-sync`.warehouse W ON W.id = A.warehouse_id
 LEFT JOIN `turbo-sync`.supplier S ON S.id = A.supplier_id
 LEFT JOIN `turbo-sync`.product P ON P.id = EP.product_id
-WHERE COALESCE(D.reception_invoice, E.created_at) >= GREATEST(DATE_SUB(UTC_TIMESTAMP(), INTERVAL 60 DAY), '2026-09-29 06:00:00')  -- 29/09 00:00 CDMX
+WHERE COALESCE(D.reception_invoice, E.created_at) >= '2026-08-01 06:00:00'  -- 01/08/2026 00:00 CDMX
   AND St.status_name <> 'CANCELED'
   AND LOWER(P.name) LIKE '%hielo%' AND LOWER(P.name) NOT LIKE '%paleta%'
   AND COALESCE(S.business_name, '') <> 'FABIANA prueba'
