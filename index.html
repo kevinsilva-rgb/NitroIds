@@ -200,7 +200,10 @@
             divExito.innerText = "✓ " + response.mensajeRefresco;
             divExito.classList.remove('hidden');
           }
-          mostrarMultiplesDatos(datos, abiertas);
+          // Ordenes de hielo encontradas en 138873 (incluye las ya ingresadas), por ID Nitro
+          var hieloPorId = {};
+          datosHielo138873.forEach(function (d) { hieloPorId[d.idNitro] = d; });
+          mostrarMultiplesDatos(datos, abiertas, hieloPorId);
         })
         .catch(err => {
           document.getElementById('divLoading').classList.add('hidden');
@@ -233,7 +236,7 @@
       div.classList.remove('hidden');
     }
 
-    function mostrarMultiplesDatos(listaOrdenes, abiertas) {
+    function mostrarMultiplesDatos(listaOrdenes, abiertas, hieloPorId) {
       limpiarTickets('b');
       var contenedor = document.getElementById('contenedorResultados');
       var contador = document.getElementById('lblContador');
@@ -283,6 +286,9 @@
         ` : '';
 
         var ordenHielo = (!esTransf && abiertas) ? abiertas[data.idNitro] : null;
+        // Orden de hielo ya ingresada (no esta abierta pero tiene hielo recibido): se puede adjuntar la foto igual
+        var hieloIngresada = (!esTransf && !ordenHielo && hieloPorId) ? hieloPorId[data.idNitro] : null;
+        if (hieloIngresada && !(Number(hieloIngresada.cantidadRecibida) > 0)) hieloIngresada = null;
         var claveTicket = 'b' + index;
         var ocultarExterno = !!(ordenHielo && ordenHielo.vigente && externoOculto(data.externalId, ordenHielo.idNitro));
         var bloqueIdSecundario = `
@@ -321,6 +327,21 @@
               (yaTieneFoto ? '✓ Ya hay foto del remito registrada para esta orden.' : 'Adjunta la foto del remito que trae el proveedor para ver el ID Nitro.') +
             '</div>' +
             htmlBloqueTicket(claveTicket, yaTieneFoto ? 'Adjuntar otra foto' : 'Adjuntar foto del remito del proveedor');
+        } else if (hieloIngresada) {
+          // Kevin (2026-10-08): si la orden ya esta ingresada, igual se deja adjuntar la foto del remito (el ID no se bloquea)
+          var hi = hieloIngresada;
+          contextosTicket[claveTicket] = {
+            tienda: hi.tienda, proveedor: hi.marca || hi.proveedor,
+            orden: { idNitro: hi.idNitro, externalId: hi.externalId, estadoPo: hi.estadoPo,
+                     fechaCreacionMx: hi.fechaCreacionYmd || '', cantidadSolicitada: hi.cantidadSolicitada }
+          };
+          var yaConFoto = !!idsDesbloqueados[hi.idNitro];
+          bloqueTicket =
+            '<div class="bg-cyan-950/40 border border-cyan-700/60 rounded-xl p-3 text-xs text-cyan-200">' +
+              '🧊 <span class="font-bold">Orden de hielo ya ingresada · ' + escaparHtml(hi.marca || hi.proveedor) + '.</span> ' +
+              (yaConFoto ? '✓ Ya hay foto del remito registrada para esta orden.' : 'Si no subiste la foto del remito, adjúntala aquí.') +
+            '</div>' +
+            htmlBloqueTicket(claveTicket, yaConFoto ? 'Adjuntar otra foto' : 'Adjuntar foto del remito del proveedor');
         }
 
         var htmlTarjeta = `
@@ -630,7 +651,8 @@
           delete fotosTicket[clave];
           document.getElementById('ticketPreview_' + clave).classList.add('hidden');
           document.getElementById('txtFotoTicket_' + clave).innerText = 'Adjuntar otra foto';
-          estadoTicket(clave, 'ok', '✓ Foto enviada a Torre de Control. Ya puedes ver el ID Nitro arriba.');
+          var estabaBloqueado = !!document.getElementById('idNitroBox_' + clave) && !idsDesbloqueados[o.idNitro];
+          estadoTicket(clave, 'ok', '✓ Foto enviada a Torre de Control.' + (estabaBloqueado ? ' Ya puedes ver el ID Nitro arriba.' : ''));
           desbloquearIdNitro(clave, o.idNitro);
         })
         .catch(function (err) {
