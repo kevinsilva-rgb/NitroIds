@@ -8,7 +8,7 @@ Las 2 fotos que se cuentan por orden (Kevin, 2026-10-08):
   1. Remito en Nitro: el PDF que arma la app de Nitro con la foto del remito al cerrar la recepción
      (turbo_reception_order_ms.reception_order_execution_document.url) — columna `remito_nitro_url` del SQL.
   2. Foto en NitroIds: la que sube la tienda en NitroIds (sheet "Ticket Hielo", vía Control Hielo `?api=idsConFoto`).
-Pendiente = orden con menos de 2/2.
+Pendiente = orden con 0/2 (ninguna de las 2 fotos) — Kevin, 2026-10-08.
 
 Fuentes:
   - Ingresos: SQL ad-hoc `ingresos_hielo.sql` sobre Redash (data source 10271, Turbo). Ingreso = recepción hecha en
@@ -18,7 +18,7 @@ Fuentes:
 Salida:
   - salidas/ingresos_sin_foto_<fecha>.html      (cuerpo del correo a Kevin)
   - salidas/ingresos_sin_foto_<fecha>.slack.md  (mensaje para el canal privado #hielo-ingresos-sin-foto)
-  - stdout: JSON con fecha, ingresos, completas (2/2), sin_foto (= incompletas, < 2/2), faltan_nitro, faltan_nitroids,
+  - stdout: JSON con fecha, ingresos, completas (2/2), una_foto (1/2), sin_foto (= pendientes, 0/2), faltan_nitro, faltan_nitroids,
     asunto y rutas (lo lee la tarea programada para enviar correo y Slack).
 Sale con código != 0 si no pudo armar el reporte (la tarea avisa por correo del error).
 """
@@ -91,15 +91,19 @@ def falta_txt(r):
     return "Nitro" if not r["nitro"] else "NitroIds"
 
 
+def resumen_conteos(filas):
+    n = [sum(1 for r in filas if r["n_fotos"] == k) for k in (2, 1, 0)]
+    return f"{n[0]} con 2/2 · {n[1]} con 1/2 · {n[2]} con 0/2"
+
+
 def armar_html(fecha, filas, incompletas):
     e = html.escape
     fecha_txt = datetime.date.fromisoformat(fecha).strftime("%d/%m/%Y")
     estilo_th = "text-align:left;padding:6px 8px;background:#0f172a;color:#fff;font-size:12px;"
     estilo_td = "padding:6px 8px;border-bottom:1px solid #e2e8f0;font-size:12px;vertical-align:top;"
-    completas = len(filas) - len(incompletas)
     if incompletas:
         resumen = (f"<b>{len(incompletas)} de {len(filas)}</b> órdenes de hielo con ingreso el {fecha_txt} "
-                   f"<b style='color:#b91c1c'>no tienen las 2 fotos del remito</b> ({completas} con 2/2).")
+                   f"<b style='color:#b91c1c'>no tienen ninguna foto del remito (0/2)</b>. ({resumen_conteos(filas)})")
         cuerpo = ["<table style='border-collapse:collapse;width:100%;font-family:Arial,sans-serif'>",
                   "<tr>" + "".join(f"<th style='{estilo_th}'>{c}</th>" for c in
                                    ("Tienda", "Proveedor", "ID Nitro", "External ID", "Ingreso", "Unidades",
@@ -114,8 +118,8 @@ def armar_html(fecha, filas, incompletas):
         cuerpo.append("</table>")
         tabla = "\n".join(cuerpo)
     else:
-        resumen = (f"✅ Las <b>{len(filas)}</b> órdenes de hielo con ingreso el {fecha_txt} tienen las 2 fotos (2/2)."
-                   if filas else f"No hubo órdenes de hielo con ingreso en Nitro el {fecha_txt}.")
+        resumen = (f"✅ Las <b>{len(filas)}</b> órdenes de hielo con ingreso el {fecha_txt} tienen al menos 1 foto del remito "
+                   f"({resumen_conteos(filas)})." if filas else f"No hubo órdenes de hielo con ingreso en Nitro el {fecha_txt}.")
         tabla = ""
     return f"""<div style="font-family:Arial,sans-serif;color:#0f172a;max-width:900px">
 <h2 style="margin:0 0 8px">🧊 Ingresos de hielo y fotos del remito · {fecha_txt}</h2>
@@ -138,12 +142,12 @@ def armar_slack(fecha, filas, incompletas):
            f"de la foto del remito en Nitro (CDMX), todos los proveedores. · [NitroIds]({NITROIDS_URL})_")
     titulo = f"**🧊 Ingresos de hielo y fotos del remito · {fecha_txt}**\n"
     if not incompletas:
-        cuerpo = (f"✅ Las **{len(filas)}** órdenes de hielo con ingreso tienen las 2 fotos (2/2).\n" if filas
-                  else "No hubo órdenes de hielo con ingreso en Nitro.\n")
+        cuerpo = (f"✅ Las **{len(filas)}** órdenes de hielo con ingreso tienen al menos 1 foto del remito "
+                  f"({resumen_conteos(filas)}).\n" if filas else "No hubo órdenes de hielo con ingreso en Nitro.\n")
         return titulo + cuerpo + pie
     limpia = lambda v: str(v or "—").replace("|", "/")
-    encabezado = (titulo + f"**{len(incompletas)} de {len(filas)}** órdenes con ingreso **no tienen las 2 fotos** "
-                  f"({len(filas) - len(incompletas)} con 2/2).\n\n"
+    encabezado = (titulo + f"**{len(incompletas)} de {len(filas)}** órdenes con ingreso **no tienen ninguna foto del remito (0/2)** "
+                  f"({resumen_conteos(filas)}).\n\n"
                   "| Tienda | Proveedor | ID Nitro | External ID | Hora | Unid. | Fotos | Falta |\n"
                   "|---|---|---|---|---|---|---|---|\n")
     lineas = []
@@ -168,7 +172,7 @@ def main():
     fecha = args.fecha or (datetime.datetime.now(CDMX).date() - datetime.timedelta(days=1)).isoformat()
 
     filas = con_fotos(ingresos(fecha), ids_con_foto())
-    incompletas = [r for r in filas if r["n_fotos"] < 2]
+    incompletas = [r for r in filas if r["n_fotos"] == 0]  # pendientes = 0/2
 
     os.makedirs(os.path.join(AQUI, "salidas"), exist_ok=True)
     ruta = os.path.join(AQUI, "salidas", f"ingresos_sin_foto_{fecha}.html")
@@ -179,9 +183,10 @@ def main():
         f.write(armar_slack(fecha, filas, incompletas))
 
     fecha_txt = datetime.date.fromisoformat(fecha).strftime("%d/%m/%Y")
-    asunto = (f"🧊 Hielo {fecha_txt}: {len(incompletas)} de {len(filas)} ingresos sin las 2 fotos del remito"
-              if incompletas else f"🧊 Hielo {fecha_txt}: todos los ingresos con 2/2 fotos ({len(filas)})")
-    print(json.dumps({"fecha": fecha, "ingresos": len(filas), "completas": len(filas) - len(incompletas),
+    asunto = (f"🧊 Hielo {fecha_txt}: {len(incompletas)} de {len(filas)} ingresos sin ninguna foto del remito (0/2)"
+              if incompletas else f"🧊 Hielo {fecha_txt}: todos los ingresos con foto del remito ({resumen_conteos(filas)})")
+    print(json.dumps({"fecha": fecha, "ingresos": len(filas), "completas": sum(1 for r in filas if r["n_fotos"] == 2),
+                      "una_foto": sum(1 for r in filas if r["n_fotos"] == 1),
                       "sin_foto": len(incompletas),
                       "faltan_nitro": sum(1 for r in filas if not r["nitro"]),
                       "faltan_nitroids": sum(1 for r in filas if not r["nitroids"]),
