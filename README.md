@@ -22,6 +22,7 @@ Página estática (un solo `index.html`) que usan tiendas y Torre de Control par
 ```
 index.html (GitHub Pages)
    ├── Buscador ──fetch GET──►  Web App "búsqueda" (AKfycbyar0C3…)  ──► Redash (queries sin confirmar)
+   │              fetch GET──►  Web App Control Hielo Chedraui (AKfycbxUy3…) ?api=infoHieloBusqueda ──► Redash 138873 (caché)
    └── Hielo ─────fetch GET──►  Web App Control Hielo Chedraui (AKfycbxUy3…) ?api=ordenesHielo ──► Redash 138873
                   fetch POST─►  mismo Web App (accion=ticketHielo) ──► Drive + Sheet "Ticket Hielo"
 ```
@@ -29,15 +30,16 @@ index.html (GitHub Pages)
 | Backend | Deployment (URL `/exec`) | Código | Qué hace |
 |---|---|---|---|
 | **Búsqueda de IDs** | `https://script.google.com/macros/s/AKfycbyar0C3avos5tH4S5lte-Bjc00aAhp0dnqE0X2YIXPPOdolUEZrvJylodQ9q_cJC7Vhaw/exec` | **No versionado.** No aparece en `clasp list`; candidato: script vinculado al Sheet "IDS OCS Y ALBARANES" (`1424NYH8EyBLVJnap8S7gelMrFV8tUNwop3PzP9BfT6M`) | `GET ?externalId=<texto>&refrescar=<true/false>` → órdenes que coinciden |
-| **Órdenes de hielo / tickets** | `https://script.google.com/macros/s/AKfycbxUy3nlvDOEHp20OzHcYJAH2N7f9El1eRjWl3lfVvNMJDw3EYRyz0E6j0dtKtDhHHjY/exec` | Repo `kevinsilva-rgb/Control-Hielo-Chedraui` (`Código.js`: `doGet`, `apiOrdenesHielo_`, `doPost`, `registrarTicketHielo_`) | `GET ?api=ordenesHielo&refrescar=…` y `POST` con `accion=ticketHielo` |
+| **Órdenes de hielo / tickets** | `https://script.google.com/macros/s/AKfycbxUy3nlvDOEHp20OzHcYJAH2N7f9El1eRjWl3lfVvNMJDw3EYRyz0E6j0dtKtDhHHjY/exec` | Repo `kevinsilva-rgb/Control-Hielo-Chedraui` (`Código.js`: `doGet`, `apiOrdenesHielo_`, `apiInfoHieloBusqueda_`, `doPost`, `registrarTicketHielo_`) | `GET ?api=ordenesHielo&refrescar=…` (módulo), `GET ?api=infoHieloBusqueda&externalId=…&refrescar=…` (buscador, desde v55) y `POST` con `accion=ticketHielo` |
 
 ### Funciones de la página
 
 | Función | Qué hace |
 |---|---|
-| `ejecutarBusqueda(forzarRefresco)` | Valida el texto, muestra el loader y llama `GET WEB_APP_URL?externalId=…&refrescar=…`. Con `error` muestra el mensaje; con `mensajeRefresco` muestra el aviso verde; con `data` pinta tarjetas. |
+| `ejecutarBusqueda(forzarRefresco)` | Valida el texto, muestra el loader y llama en paralelo al buscador original (`GET WEB_APP_URL?externalId=…&refrescar=…`) y a `HIELO_INFO_URL` (Control Hielo `?api=infoHieloBusqueda`: órdenes de hielo que coinciden + `abiertasPorId` + `idsConFoto` de esas órdenes). Cada respuesta llama a `mostrarBusqueda()`. |
+| `mostrarBusqueda(estado)` | Desde 2026-10-16: pinta en cuanto responde el original; si hielo aún no llega, el ID Nitro (y el External ID que no inicia con 7) queda en "🧊 Verificando si es orden de hielo…" sin botón Copiar, y la tarjeta se vuelve a pintar con candado / ⛔ / bloque de foto cuando llega. Si el original no trae nada, espera a hielo. Hielo caído = sin candado (fail-open); original caído = aviso amarillo `divAviso`. |
 | `actualizarDataQueries()` | Botón "Actualizar Data": pone el botón en estado de carga y ejecuta la búsqueda con `refrescar=true` (el backend re-ejecuta sus queries en Redash). Se puede usar con la caja vacía. |
-| `mostrarMultiplesDatos(lista)` | Pinta una tarjeta por orden encontrada, con el contador "Registros encontrados: N". |
+| `mostrarMultiplesDatos(lista, abiertas, hieloPorId, hieloPendiente)` | Pinta una tarjeta por orden encontrada, con el contador "Registros encontrados: N". |
 | `alternarVistaHielo()` | Cambia entre el buscador y la vista de hielo; la primera vez carga las órdenes de hielo. |
 | `cargarOrdenesHielo(forzar)` | `GET HIELO_API_URL&refrescar=…`, llena el dropdown de tiendas y recuerda la tienda y el proveedor elegidos al actualizar. |
 | `elegirTiendaHielo()` / `mostrarOrdenesHielo()` | Llenan el dropdown de proveedor y pintan la orden a usar. |

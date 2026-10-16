@@ -118,11 +118,12 @@
     // sheet "Ticket Hielo" (1JB-eKW2W8zcHUeBvBFKmyb873KRWxXspGE0fQMor4C0) + foto en Drive.
     const HIELO_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxUy3nlvDOEHp20OzHcYJAH2N7f9El1eRjWl3lfVvNMJDw3EYRyz0E6j0dtKtDhHHjY/exec";
     const HIELO_API_URL = HIELO_WEBAPP_URL + "?api=ordenesHielo";
+    // Buscador: ?api=infoHieloBusqueda (Control Hielo v55) trae en UNA llamada rapida (~2 s) las ordenes de hielo que
+    // coinciden con el termino, cuales estan abiertas/vigentes (abiertasPorId) y cuales ya tienen foto (idsConFoto)
+    const HIELO_INFO_URL = HIELO_WEBAPP_URL + "?api=infoHieloBusqueda";
     var datosHielo = null;
     var fotosTicket = {};      // clave de tarjeta ('h0' modulo hielo, 'b0' buscador) -> { base64, mimeType }
     var contextosTicket = {};  // clave de tarjeta -> { tienda, proveedor, orden } que viaja con la foto
-    var abiertasHielo = null;  // idNitro -> orden de hielo abierta (abiertasPorId del backend), cache compartido
-    var promesaAbiertasHielo = null;
     var busquedaActual = 0;
     var idsDesbloqueados = {}; // idNitro de hielo con foto ya registrada (sheet 'Ticket Hielo' o enviada en esta sesion) -> se muestra el ID
 
@@ -167,70 +168,95 @@
       document.getElementById('divLoading').classList.remove('hidden');
       
       var idBusqueda = busquedaActual;
-      // En paralelo: si la orden es de hielo, el ID Nitro no se muestra hasta enviar la foto del remito.
-      // Si el endpoint de hielo falla, no se bloquea la busqueda (se muestra sin candado).
-      var promesaHielo = conLimite(cargarAbiertasHielo(), 60000).catch(function (err) {
-        console.error('No se pudieron consultar las ordenes de hielo:', err);
-        return {};
-      });
-      // Busqueda original de NitroIds + busqueda en la query de hielo 138873 (Control Hielo ?api=buscarHielo), que
-      // trae ordenes de hielo que la original no encuentra (p. ej. externos que no inician con 7). Si la de hielo
-      // falla, se muestra solo la original.
       var limiteMs = forzarRefresco ? 180000 : 60000;
-      var promesaBuscarHielo = conLimite(fetch(HIELO_WEBAPP_URL + '?api=buscarHielo&externalId=' + encodeURIComponent(idInput) + '&refrescar=' + forzarRefresco)
+      var estado = { original: null, hielo: null };
+      // Info de hielo (Control Hielo ?api=infoHieloBusqueda, query 138873): ordenes de hielo que el buscador original no
+      // encuentra (p. ej. externos que no inician con 7) + cuales estan abiertas/vigentes (candado del ID hasta enviar la
+      // foto del remito) + cuales ya tienen foto. Si falla, no se bloquea la busqueda (se muestra sin candado).
+      conLimite(fetch(HIELO_INFO_URL + '&externalId=' + encodeURIComponent(idInput) + '&refrescar=' + forzarRefresco)
         .then(function (r) { return r.json(); }), limiteMs)
-        .then(function (resp) { if (resp.error) throw new Error(resp.mensaje); return resp.data || []; })
-        .catch(function (err) { console.error('No se pudo buscar en ordenes de hielo:', err); return []; });
+        .then(function (resp) {
+          if (resp.error) throw new Error(resp.mensaje);
+          return { data: resp.data || [], abiertas: resp.abiertasPorId || {}, idsConFoto: resp.idsConFoto };
+        })
+        .catch(function (err) {
+          console.error('No se pudo consultar la informacion de hielo:', err);
+          return { data: [], abiertas: {}, idsConFoto: [] };
+        })
+        .then(function (hielo) {
+          if (idBusqueda !== busquedaActual) return;
+          aplicarIdsConFoto(hielo.idsConFoto);
+          estado.hielo = hielo;
+          mostrarBusqueda(estado, forzarRefresco);
+        });
       // Si el backend original falla (Apps Script/Redash saturado devuelve una pagina de error, no JSON) o tarda
       // demasiado, no se tira toda la busqueda: se muestra lo que encontro la de hielo y un aviso.
-      var promesaOriginal = conLimite(fetch(`${WEB_APP_URL}?externalId=${encodeURIComponent(idInput)}&refrescar=${forzarRefresco}`)
+      conLimite(fetch(`${WEB_APP_URL}?externalId=${encodeURIComponent(idInput)}&refrescar=${forzarRefresco}`)
         .then(response => response.json()), limiteMs)
         .catch(function (err) {
           console.error('El buscador original no respondio:', err);
           return { error: true, fallaServidor: true };
-        });
-      Promise.all([promesaOriginal, promesaBuscarHielo, promesaHielo])
-        .then(([response, datosHielo138873, abiertas]) => {
-          if (idBusqueda !== busquedaActual) return; // ya hay otra busqueda en curso
-          document.getElementById('divLoading').classList.add('hidden');
-          restablecerBotonActualizar();
-
-          // Juntar sin duplicar por ID Nitro (gana el resultado del buscador original)
-          var datos = response.error ? [] : (response.data || []).slice();
-          var vistos = {};
-          datos.forEach(function (d) { if (d.idNitro !== null && d.idNitro !== undefined) vistos[d.idNitro] = true; });
-          datosHielo138873.forEach(function (d) { if (!vistos[d.idNitro]) { vistos[d.idNitro] = true; datos.push(d); } });
-
-          var msgFalla = forzarRefresco
-            ? "El servidor no terminó de actualizar los datos de Redash (puede estar saturado). Espera un minuto y vuelve a buscar."
-            : "El servidor de búsqueda no respondió (puede estar saturado). Espera unos segundos y vuelve a intentar.";
-          if (!datos.length) {
-            if (response.fallaServidor) mostrarError(msgFalla);
-            else if (response.error) mostrarError(response.mensaje);
-            return;
-          }
-          if (response.fallaServidor) {
-            var divAviso = document.getElementById('divAviso');
-            divAviso.innerText = "⚠️ El buscador principal no respondió; se muestran solo las órdenes de hielo encontradas. Vuelve a intentar para ver el resto.";
-            divAviso.classList.remove('hidden');
-          }
-          if (response.mensajeRefresco) {
-            var divExito = document.getElementById('divExito');
-            divExito.innerText = "✓ " + response.mensajeRefresco;
-            divExito.classList.remove('hidden');
-          }
-          // Ordenes de hielo encontradas en 138873 (incluye las ya ingresadas), por ID Nitro
-          var hieloPorId = {};
-          datosHielo138873.forEach(function (d) { hieloPorId[d.idNitro] = d; });
-          mostrarMultiplesDatos(datos, abiertas, hieloPorId);
         })
-        .catch(err => {
-          document.getElementById('divLoading').classList.add('hidden');
-          restablecerBotonActualizar();
-          // Ya no llega aqui por fallas de red del buscador original (se atrapan arriba): es un error al dibujar
-          mostrarError("Ocurrió un error al mostrar los resultados.");
-          console.error(err);
+        .then(function (response) {
+          if (idBusqueda !== busquedaActual) return;
+          estado.original = response;
+          mostrarBusqueda(estado, forzarRefresco);
         });
+    }
+
+    // Se llama cuando responde cada backend. Las tarjetas salen en cuanto responde el buscador original; si la info de
+    // hielo todavia no llega, el ID Nitro queda "verificando" (no se muestra, para no saltarse el candado) y la tarjeta
+    // se vuelve a dibujar con candado / bloque de foto cuando llega. Si el original no trae nada se espera a la de hielo.
+    function mostrarBusqueda(estado, forzarRefresco) {
+      var response = estado.original;
+      if (!response) return;
+      try {
+        var original = response.error ? [] : (response.data || []);
+        if (response.mensajeRefresco) {
+          var divExito = document.getElementById('divExito');
+          divExito.innerText = "✓ " + response.mensajeRefresco;
+          divExito.classList.remove('hidden');
+        }
+        if (!estado.hielo) {
+          if (!original.length) return;
+          document.getElementById('divLoading').classList.add('hidden');
+          mostrarMultiplesDatos(original.slice(), null, null, true);
+          return;
+        }
+        document.getElementById('divLoading').classList.add('hidden');
+        restablecerBotonActualizar();
+
+        // Juntar sin duplicar por ID Nitro (gana el resultado del buscador original)
+        var datosHielo138873 = estado.hielo.data;
+        var datos = original.slice();
+        var vistos = {};
+        datos.forEach(function (d) { if (d.idNitro !== null && d.idNitro !== undefined) vistos[d.idNitro] = true; });
+        datosHielo138873.forEach(function (d) { if (!vistos[d.idNitro]) { vistos[d.idNitro] = true; datos.push(d); } });
+
+        var msgFalla = forzarRefresco
+          ? "El servidor no terminó de actualizar los datos de Redash (puede estar saturado). Espera un minuto y vuelve a buscar."
+          : "El servidor de búsqueda no respondió (puede estar saturado). Espera unos segundos y vuelve a intentar.";
+        if (!datos.length) {
+          document.getElementById('contenedorResultados').innerHTML = '';
+          if (response.fallaServidor) mostrarError(msgFalla);
+          else if (response.error) mostrarError(response.mensaje);
+          return;
+        }
+        if (response.fallaServidor) {
+          var divAviso = document.getElementById('divAviso');
+          divAviso.innerText = "⚠️ El buscador principal no respondió; se muestran solo las órdenes de hielo encontradas. Vuelve a intentar para ver el resto.";
+          divAviso.classList.remove('hidden');
+        }
+        // Ordenes de hielo encontradas en 138873 (incluye las ya ingresadas), por ID Nitro
+        var hieloPorId = {};
+        datosHielo138873.forEach(function (d) { hieloPorId[d.idNitro] = d; });
+        mostrarMultiplesDatos(datos, estado.hielo.abiertas, hieloPorId, false);
+      } catch (err) {
+        document.getElementById('divLoading').classList.add('hidden');
+        restablecerBotonActualizar();
+        mostrarError("Ocurrió un error al mostrar los resultados.");
+        console.error(err);
+      }
     }
 
     // Rechaza si la promesa no termina en ms (para que el "cargando" no se quede girando para siempre)
@@ -263,9 +289,11 @@
       div.classList.remove('hidden');
     }
 
-    function mostrarMultiplesDatos(listaOrdenes, abiertas, hieloPorId) {
+    // hieloPendiente: la info de hielo aun no llega -> ID Nitro (y External ID que no inicia con 7) en espera
+    function mostrarMultiplesDatos(listaOrdenes, abiertas, hieloPorId, hieloPendiente) {
       limpiarTickets('b');
       var contenedor = document.getElementById('contenedorResultados');
+      contenedor.innerHTML = '';
       var contador = document.getElementById('lblContador');
       
       contador.innerText = `Registros encontrados: ${listaOrdenes.length}`;
@@ -318,6 +346,7 @@
         if (hieloIngresada && !(Number(hieloIngresada.cantidadRecibida) > 0)) hieloIngresada = null;
         var claveTicket = 'b' + index;
         var ocultarExterno = !!(ordenHielo && ordenHielo.vigente && externoOculto(data.externalId, ordenHielo.idNitro));
+        var externoEnEspera = hieloPendiente && !esTransf && externoOculto(data.externalId, data.idNitro);
         var bloqueIdSecundario = `
               <div class="border-b border-slate-700/60 pb-3 flex justify-between items-end">
                 <div>
@@ -330,7 +359,15 @@
                 </button>
               </div>`;
         var bloqueTicket = '';
-        if (ordenHielo && !ordenHielo.vigente) {
+        if (hieloPendiente && !esTransf) {
+          bloqueIdSecundario =
+            '<div class="border-b border-slate-700/60 pb-3">' +
+              '<span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">ID Nitro (PO_ID)</span>' +
+              '<div class="mt-1 bg-[#0f172a]/80 border border-dashed border-slate-600 rounded-xl px-3 py-2.5 text-xs text-slate-400 flex items-center gap-2">' +
+                '<span class="animate-pulse">🧊</span> Verificando si es orden de hielo…' +
+              '</div>' +
+            '</div>';
+        } else if (ordenHielo && !ordenHielo.vigente) {
           // Orden de hielo vencida (Kevin: vigencia 14 dias desde la creacion): no se muestra su ID ni se pide foto
           bloqueIdSecundario =
             '<div class="border-b border-slate-700/60 pb-3">' +
@@ -380,7 +417,7 @@
                   ${badgeTransferencia}
                 </div>
                 <div class="flex items-center gap-3">
-                  <h2 id="extIdBox_${claveTicket}" data-modo="titulo" class="text-lg font-bold font-mono ${tituloColor}">${ocultarExterno ? '<span class="text-sm font-sans font-semibold text-slate-400">🔒 Se muestra al enviar la foto</span>' : escaparHtml(data.externalId)}</h2>
+                  <h2 id="extIdBox_${claveTicket}" data-modo="titulo" class="text-lg font-bold font-mono ${tituloColor}">${ocultarExterno ? '<span class="text-sm font-sans font-semibold text-slate-400">🔒 Se muestra al enviar la foto</span>' : externoEnEspera ? '<span class="text-sm font-sans font-semibold text-slate-400 animate-pulse">Verificando…</span>' : escaparHtml(data.externalId)}</h2>
                   ${botonCopiarSuperior}
                 </div>
               </div>
@@ -467,7 +504,6 @@
         .then(function (resp) {
           if (resp.error) throw new Error(resp.mensaje);
           datosHielo = resp.tiendas;
-          abiertasHielo = resp.abiertasPorId || {};
           aplicarIdsConFoto(resp.idsConFoto);
           sel.innerHTML = '<option value="">— Elige una tienda —</option>' + datosHielo.map(function (t, i) {
             var total = t.proveedores.reduce(function (acc, p) { return acc + p.totalAbiertas; }, 0);
@@ -693,23 +729,6 @@
           btn.classList.remove('opacity-50');
           btn.innerText = 'Enviar foto';
         });
-    }
-
-    // Ordenes de hielo abiertas (mismo endpoint que el modulo), una sola descarga compartida
-    // Se pide de nuevo en cada busqueda para que idsConFoto refleje fotos enviadas desde otros celulares
-    function cargarAbiertasHielo() {
-      if (!promesaAbiertasHielo) {
-        promesaAbiertasHielo = fetch(HIELO_API_URL + '&refrescar=false')
-          .then(function (r) { return r.json(); })
-          .then(function (resp) {
-            if (resp.error) throw new Error(resp.mensaje);
-            abiertasHielo = resp.abiertasPorId || {};
-            aplicarIdsConFoto(resp.idsConFoto);
-            return abiertasHielo;
-          })
-          .finally(function () { promesaAbiertasHielo = null; });
-      }
-      return promesaAbiertasHielo;
     }
 
     // ID Nitro de una orden de hielo: con candado hasta enviar la foto del remito (pedido de Kevin)
