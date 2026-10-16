@@ -79,9 +79,9 @@
 
         <div class="flex gap-2">
           <input type="text" id="txtExternalId" placeholder="Ej: 14212974" 
-                 class="flex-1 px-4 py-3 bg-[#0f172a] border border-slate-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all font-medium text-white placeholder-slate-500">
+                 class="flex-1 min-w-0 px-4 py-3 bg-[#0f172a] border border-slate-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all font-medium text-white placeholder-slate-500">
           <button onclick="ejecutarBusqueda(false)" id="btnBuscar"
-                  class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center">
+                  class="shrink-0 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-3 rounded-xl shadow-md transition-all active:scale-95 flex items-center justify-center">
             Buscar
           </button>
         </div>
@@ -98,6 +98,8 @@
     <div id="divExito" class="hidden bg-emerald-950/40 border border-emerald-800/60 p-3 rounded-xl text-emerald-400 text-xs font-medium mb-6 text-center shadow-lg"></div>
 
     <!-- Alerta de Error -->
+    <div id="divAviso" class="hidden bg-amber-950/40 border border-amber-800/60 p-3 rounded-xl text-amber-300 text-xs font-medium mb-6 text-center shadow-lg"></div>
+
     <div id="divError" class="hidden bg-red-950/40 border border-red-800/60 p-4 rounded-xl text-red-400 text-sm font-medium mb-6 text-center shadow-lg"></div>
 
     <div id="lblContador" class="hidden text-xs text-slate-400 font-bold uppercase tracking-wider mb-3 px-1"></div>
@@ -146,6 +148,7 @@
       
       document.getElementById('divError').classList.add('hidden');
       document.getElementById('divExito').classList.add('hidden');
+      document.getElementById('divAviso').classList.add('hidden');
       document.getElementById('lblContador').classList.add('hidden');
       document.getElementById('contenedorResultados').innerHTML = '';
       busquedaActual++;
@@ -166,19 +169,26 @@
       var idBusqueda = busquedaActual;
       // En paralelo: si la orden es de hielo, el ID Nitro no se muestra hasta enviar la foto del remito.
       // Si el endpoint de hielo falla, no se bloquea la busqueda (se muestra sin candado).
-      var promesaHielo = cargarAbiertasHielo().catch(function (err) {
+      var promesaHielo = conLimite(cargarAbiertasHielo(), 60000).catch(function (err) {
         console.error('No se pudieron consultar las ordenes de hielo:', err);
         return {};
       });
       // Busqueda original de NitroIds + busqueda en la query de hielo 138873 (Control Hielo ?api=buscarHielo), que
       // trae ordenes de hielo que la original no encuentra (p. ej. externos que no inician con 7). Si la de hielo
       // falla, se muestra solo la original.
-      var promesaBuscarHielo = fetch(HIELO_WEBAPP_URL + '?api=buscarHielo&externalId=' + encodeURIComponent(idInput) + '&refrescar=' + forzarRefresco)
-        .then(function (r) { return r.json(); })
+      var limiteMs = forzarRefresco ? 180000 : 60000;
+      var promesaBuscarHielo = conLimite(fetch(HIELO_WEBAPP_URL + '?api=buscarHielo&externalId=' + encodeURIComponent(idInput) + '&refrescar=' + forzarRefresco)
+        .then(function (r) { return r.json(); }), limiteMs)
         .then(function (resp) { if (resp.error) throw new Error(resp.mensaje); return resp.data || []; })
         .catch(function (err) { console.error('No se pudo buscar en ordenes de hielo:', err); return []; });
-      var promesaOriginal = fetch(`${WEB_APP_URL}?externalId=${encodeURIComponent(idInput)}&refrescar=${forzarRefresco}`)
-        .then(response => response.json());
+      // Si el backend original falla (Apps Script/Redash saturado devuelve una pagina de error, no JSON) o tarda
+      // demasiado, no se tira toda la busqueda: se muestra lo que encontro la de hielo y un aviso.
+      var promesaOriginal = conLimite(fetch(`${WEB_APP_URL}?externalId=${encodeURIComponent(idInput)}&refrescar=${forzarRefresco}`)
+        .then(response => response.json()), limiteMs)
+        .catch(function (err) {
+          console.error('El buscador original no respondio:', err);
+          return { error: true, fallaServidor: true };
+        });
       Promise.all([promesaOriginal, promesaBuscarHielo, promesaHielo])
         .then(([response, datosHielo138873, abiertas]) => {
           if (idBusqueda !== busquedaActual) return; // ya hay otra busqueda en curso
@@ -191,9 +201,18 @@
           datos.forEach(function (d) { if (d.idNitro !== null && d.idNitro !== undefined) vistos[d.idNitro] = true; });
           datosHielo138873.forEach(function (d) { if (!vistos[d.idNitro]) { vistos[d.idNitro] = true; datos.push(d); } });
 
+          var msgFalla = forzarRefresco
+            ? "El servidor no terminó de actualizar los datos de Redash (puede estar saturado). Espera un minuto y vuelve a buscar."
+            : "El servidor de búsqueda no respondió (puede estar saturado). Espera unos segundos y vuelve a intentar.";
           if (!datos.length) {
-            if (response.error) mostrarError(response.mensaje);
+            if (response.fallaServidor) mostrarError(msgFalla);
+            else if (response.error) mostrarError(response.mensaje);
             return;
+          }
+          if (response.fallaServidor) {
+            var divAviso = document.getElementById('divAviso');
+            divAviso.innerText = "⚠️ El buscador principal no respondió; se muestran solo las órdenes de hielo encontradas. Vuelve a intentar para ver el resto.";
+            divAviso.classList.remove('hidden');
           }
           if (response.mensajeRefresco) {
             var divExito = document.getElementById('divExito');
@@ -208,9 +227,17 @@
         .catch(err => {
           document.getElementById('divLoading').classList.add('hidden');
           restablecerBotonActualizar();
-          mostrarError("Error al conectar con el servidor de la API de Redash.");
+          // Ya no llega aqui por fallas de red del buscador original (se atrapan arriba): es un error al dibujar
+          mostrarError("Ocurrió un error al mostrar los resultados.");
           console.error(err);
         });
+    }
+
+    // Rechaza si la promesa no termina en ms (para que el "cargando" no se quede girando para siempre)
+    function conLimite(promesa, ms) {
+      return Promise.race([promesa, new Promise(function (_, rechazar) {
+        setTimeout(function () { rechazar(new Error('Tiempo de espera agotado (' + ms / 1000 + ' s)')); }, ms);
+      })]);
     }
 
     function restablecerBotonActualizar() {
@@ -227,7 +254,7 @@
     function mostrarError(msg) {
       var div = document.getElementById('divError');
       div.innerHTML = `
-        <div class="font-bold mb-1">⚠️ ${msg}</div>
+        <div class="font-bold mb-1">⚠️ ${escaparHtml(msg)}</div>
         <div class="text-xs opacity-80 mt-2 border-t border-red-800/40 pt-2 font-normal">
           Por favor, <span class="font-semibold underline">vuelve a intentar la búsqueda</span>.<br>
           Si el error persiste, comunícate de inmediato con la <span class="font-semibold text-white">Torre de Control</span>.
@@ -245,7 +272,7 @@
       contador.classList.remove('hidden');
 
       listaOrdenes.forEach(function(data, index) {
-        var estadoTxt = data.estadoPo.toString().toUpperCase();
+        var estadoTxt = (data.estadoPo === null || data.estadoPo === undefined || String(data.estadoPo).trim() === '' ? 'SIN ESTADO' : String(data.estadoPo)).toUpperCase();
         var esTransf = data.esTransferencia === true;
 
         var estadoClases = "bg-amber-500/10 text-amber-400 border border-amber-500/30";
@@ -261,7 +288,7 @@
           cantRecibidaLimpia = "0";
         }
 
-        var fechaTxt = data.fechaCreacionMx || "N/A";
+        var fechaTxt = data.fechaCreacionMx ? String(data.fechaCreacionMx) : "N/A";
         if (fechaTxt !== "N/A" && fechaTxt.includes(" ")) {
           fechaTxt = fechaTxt.split(" ")[0];
         }
@@ -279,7 +306,7 @@
           : '';
 
         var botonCopiarSuperior = esTransf ? `
-          <button onclick="copiarIdNitroCualquiera('${data.externalId}', 'btnCopiarTop_${index}', 'txtCopiarTop_${index}')" id="btnCopiarTop_${index}" 
+          <button data-valor="${escaparHtml(data.externalId)}" onclick="copiarIdNitroCualquiera(this.dataset.valor, 'btnCopiarTop_${index}', 'txtCopiarTop_${index}')" id="btnCopiarTop_${index}" 
                   class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-2.5 py-1 rounded-lg border border-slate-600 text-[11px] font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1">
             <span id="txtCopiarTop_${index}">Copiar ID</span>
           </button>
@@ -295,9 +322,9 @@
               <div class="border-b border-slate-700/60 pb-3 flex justify-between items-end">
                 <div>
                   <span class="text-[10px] font-semibold ${esTransf ? 'text-rose-400' : 'text-emerald-400'} block uppercase tracking-wider">${labelSecundario}</span>
-                  <span id="resIdNitro_${index}" class="text-lg font-extrabold ${idNitroColor} font-mono tracking-wide">${valorSecundario}</span>
+                  <span id="resIdNitro_${index}" class="text-lg font-extrabold ${idNitroColor} font-mono tracking-wide">${escaparHtml(valorSecundario)}</span>
                 </div>
-                <button onclick="copiarIdNitroCualquiera('${valorSecundario}', 'btnCopiar_${index}', 'txtCopiar_${index}')" id="btnCopiar_${index}" 
+                <button data-valor="${escaparHtml(valorSecundario)}" onclick="copiarIdNitroCualquiera(this.dataset.valor, 'btnCopiar_${index}', 'txtCopiar_${index}')" id="btnCopiar_${index}" 
                         class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5">
                   <span id="txtCopiar_${index}">${esTransf ? 'Copiar SAP' : 'Copiar'}</span>
                 </button>
@@ -346,20 +373,20 @@
 
         var htmlTarjeta = `
           <div class="bg-[#1e293b] rounded-2xl shadow-2xl border ${bordeTarjeta} overflow-hidden transition-all">
-            <div class="bg-[#0f172a] px-6 py-4 border-b border-slate-700/80 flex justify-between items-center">
+            <div class="bg-[#0f172a] px-6 py-4 border-b border-slate-700/80 flex flex-wrap justify-between items-center gap-x-3 gap-y-2">
               <div>
                 <div class="flex items-center gap-2 mb-0.5">
                   <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">${labelSuperior}</span>
                   ${badgeTransferencia}
                 </div>
                 <div class="flex items-center gap-3">
-                  <h2 id="extIdBox_${claveTicket}" data-modo="titulo" class="text-lg font-bold font-mono ${tituloColor}">${ocultarExterno ? '<span class="text-sm font-sans font-semibold text-slate-400">🔒 Se muestra al enviar la foto</span>' : data.externalId}</h2>
+                  <h2 id="extIdBox_${claveTicket}" data-modo="titulo" class="text-lg font-bold font-mono ${tituloColor}">${ocultarExterno ? '<span class="text-sm font-sans font-semibold text-slate-400">🔒 Se muestra al enviar la foto</span>' : escaparHtml(data.externalId)}</h2>
                   ${botonCopiarSuperior}
                 </div>
               </div>
               <div class="flex items-center gap-2">
-                <span class="text-[10px] font-mono text-slate-400 bg-slate-800/60 px-2 py-1 rounded border border-slate-700/60 font-semibold">${fechaTxt}</span>
-                <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${estadoClases}">${estadoTxt}</span>
+                <span class="text-[10px] font-mono text-slate-400 bg-slate-800/60 px-2 py-1 rounded border border-slate-700/60 font-semibold">${escaparHtml(fechaTxt)}</span>
+                <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${estadoClases}">${escaparHtml(estadoTxt)}</span>
               </div>
             </div>
             
@@ -368,17 +395,17 @@
 
               <div class="border-b border-slate-700/60 pb-3">
                 <span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">Tienda Destino</span>
-                <span class="text-base font-bold text-white">${data.tienda}</span>
+                <span class="text-base font-bold text-white">${escaparHtml(data.tienda)}</span>
               </div>
               
               <div class="grid grid-cols-2 gap-4 pt-1">
                 <div class="bg-[#0f172a]/60 p-4 rounded-xl border ${esTransf ? 'border-rose-900/30' : 'border-blue-900/30'}">
                   <span class="text-[10px] font-semibold ${esTransf ? 'text-rose-400' : 'text-blue-400'} block uppercase tracking-wider">Cant. Solicitada</span>
-                  <span class="text-xl font-extrabold ${esTransf ? 'text-rose-300' : 'text-blue-300'}">${data.cantidadSolicitada}</span>
+                  <span class="text-xl font-extrabold ${esTransf ? 'text-rose-300' : 'text-blue-300'}">${escaparHtml(data.cantidadSolicitada)}</span>
                 </div>
                 <div class="bg-[#0f172a]/60 p-4 rounded-xl border ${esTransf ? 'border-rose-900/30' : 'border-emerald-900/30'}">
                   <span class="text-[10px] font-semibold ${esTransf ? 'text-rose-400' : 'text-emerald-400'} block uppercase tracking-wider">Cant. Recibida</span>
-                  <span class="text-xl font-extrabold ${esTransf ? 'text-rose-300' : 'text-emerald-300'}">${cantRecibidaLimpia}</span>
+                  <span class="text-xl font-extrabold ${esTransf ? 'text-rose-300' : 'text-emerald-300'}">${escaparHtml(cantRecibidaLimpia)}</span>
                 </div>
               </div>
               ${bloqueTicket}
@@ -485,7 +512,9 @@
     }
 
     function diasDesde(fechaYmd) {
-      var f = new Date(fechaYmd.replace(' ', 'T'));
+      if (!fechaYmd) return '';
+      var f = new Date(String(fechaYmd).replace(' ', 'T'));
+      if (isNaN(f.getTime())) return '';
       var dias = Math.floor((Date.now() - f.getTime()) / 86400000);
       return dias <= 0 ? 'hoy' : dias === 1 ? 'hace 1 día' : 'hace ' + dias + ' días';
     }
@@ -701,7 +730,7 @@
       return '<div class="flex justify-between items-end">' +
           '<div><span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">ID Nitro (PO_ID)</span>' +
           '<span class="' + tamano + ' font-extrabold font-mono tracking-wide text-emerald-400 drop-shadow-[0_0_6px_rgba(16,185,129,0.2)]">' + escaparHtml(idNitro) + '</span></div>' +
-          '<button onclick="copiarIdNitroCualquiera(\'' + escaparHtml(idNitro) + '\', \'btnId_' + clave + '\', \'txtId_' + clave + '\')" id="btnId_' + clave + '" class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5"><span id="txtId_' + clave + '">Copiar</span></button>' +
+          '<button data-valor="' + escaparHtml(idNitro) + '" onclick="copiarIdNitroCualquiera(this.dataset.valor, \'btnId_' + clave + '\', \'txtId_' + clave + '\')" id="btnId_' + clave + '" class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5"><span id="txtId_' + clave + '">Copiar</span></button>' +
         '</div>';
     }
 
@@ -726,7 +755,7 @@
       return '<div class="flex justify-between items-end">' +
           '<div><span class="text-[10px] font-semibold text-slate-400 block uppercase tracking-wider">External ID (albarán / OC)</span>' +
           '<span class="text-base font-bold font-mono text-blue-300">' + escaparHtml(externalId) + '</span></div>' +
-          '<button onclick="copiarIdNitroCualquiera(\'' + escaparHtml(externalId) + '\', \'btnExt_' + clave + '\', \'txtExt_' + clave + '\')" id="btnExt_' + clave + '" class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5"><span id="txtExt_' + clave + '">Copiar</span></button>' +
+          '<button data-valor="' + escaparHtml(externalId) + '" onclick="copiarIdNitroCualquiera(this.dataset.valor, \'btnExt_' + clave + '\', \'txtExt_' + clave + '\')" id="btnExt_' + clave + '" class="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-1.5 rounded-lg border border-slate-600 text-xs font-semibold tracking-wide transition-all active:scale-95 flex items-center gap-1.5"><span id="txtExt_' + clave + '">Copiar</span></button>' +
         '</div>';
     }
 
