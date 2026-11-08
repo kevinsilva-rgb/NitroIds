@@ -116,6 +116,11 @@ cantidadSolicitada, cantidadRecibida }] }] }] }`.
   `CLOSED_ZERO_DELIVERY` no salga verde); verde si contiene `SENT`, `DELIVERY` o `COMPLETED`; ámbar
   en cualquier otro caso (ej. `AT_STORE`).
 - `cantidadRecibida` vacía o "N/A" se muestra como `0`.
+- **RC por masivo (Kevin, 2026-11-08):** en **Granjas, Portales Norte, Campestre y Zedec** (`TIENDAS_RC_MASIVO`,
+  comparado con el campo `tienda` del backend) las órdenes **RC** —External ID que no inicia con 7, sin contar ceros
+  a la izquierda— no muestran el ID Nitro ni el botón Copiar: la tarjeta avisa que lo de RC se carga por masivo
+  (ver `Dash-RC-Masivo`) y que no se ingrese en esa orden. RL (inician con 7), transferencias y demás tiendas, sin
+  cambio. Candado de UX: el ID sigue en el JSON del backend. Para sumar una tienda, agregarla a `TIENDAS_RC_MASIVO`.
 
 ### Órdenes de hielo (definiciones de Kevin, 2026-09-28)
 - Desde 2026-10-06: **todos los proveedores** Turbo (antes solo TIENDAS CHEDRAUI).
