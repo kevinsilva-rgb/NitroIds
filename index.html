@@ -121,6 +121,10 @@
     // Buscador: ?api=infoHieloBusqueda (Control Hielo v55) trae en UNA llamada rapida (~2 s) las ordenes de hielo que
     // coinciden con el termino, cuales estan abiertas/vigentes (abiertasPorId) y cuales ya tienen foto (idsConFoto)
     const HIELO_INFO_URL = HIELO_WEBAPP_URL + "?api=infoHieloBusqueda";
+    // Kevin (2026-11-08): en estas tiendas lo que llega de RC se carga por masivo (Dash-RC-Masivo), asi que el buscador
+    // no muestra el ID Nitro de sus ordenes RC (External ID que no inicia con 7, sin contar ceros a la izquierda).
+    // Las RL (inician con 7) y las transferencias se muestran normal. Nombres = campo "tienda" del backend.
+    const TIENDAS_RC_MASIVO = ['granjas', 'portales norte', 'campestre', 'zedec'];
     var datosHielo = null;
     var fotosTicket = {};      // clave de tarjeta ('h0' modulo hielo, 'b0' buscador) -> { base64, mimeType }
     var contextosTicket = {};  // clave de tarjeta -> { tienda, proveedor, orden } que viaja con la foto
@@ -346,7 +350,9 @@
         if (hieloIngresada && !(Number(hieloIngresada.cantidadRecibida) > 0)) hieloIngresada = null;
         var claveTicket = 'b' + index;
         var ocultarExterno = !!(ordenHielo && ordenHielo.vigente && externoOculto(data.externalId, ordenHielo.idNitro));
-        var externoEnEspera = hieloPendiente && !esTransf && externoOculto(data.externalId, data.idNitro);
+        var rcMasivo = !esTransf && esRcMasivo(data);
+        if (rcMasivo) { ordenHielo = null; hieloIngresada = null; ocultarExterno = false; }
+        var externoEnEspera = !rcMasivo && hieloPendiente && !esTransf && externoOculto(data.externalId, data.idNitro);
         var bloqueIdSecundario = `
               <div class="border-b border-slate-700/60 pb-3 flex justify-between items-end">
                 <div>
@@ -359,7 +365,15 @@
                 </button>
               </div>`;
         var bloqueTicket = '';
-        if (hieloPendiente && !esTransf) {
+        if (rcMasivo) {
+          bloqueIdSecundario =
+            '<div class="border-b border-slate-700/60 pb-3">' +
+              '<span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">ID Nitro (PO_ID)</span>' +
+              '<div class="mt-1 bg-amber-950/40 border border-amber-700/60 rounded-xl px-3 py-2.5 text-xs text-amber-200">' +
+                '📦 Esta orden es de <span class="font-bold">RC</span> y en <span class="font-bold">' + escaparHtml(data.tienda) + '</span> lo de RC se carga por masivo. No ingreses en esta orden; cualquier duda, con Torre de Control.' +
+              '</div>' +
+            '</div>';
+        } else if (hieloPendiente && !esTransf) {
           bloqueIdSecundario =
             '<div class="border-b border-slate-700/60 pb-3">' +
               '<span class="text-[10px] font-semibold text-emerald-400 block uppercase tracking-wider">ID Nitro (PO_ID)</span>' +
@@ -452,6 +466,12 @@
         
         contenedor.innerHTML += htmlTarjeta;
       });
+    }
+
+    function esRcMasivo(data) {
+      var tienda = String(data.tienda || '').trim().toLowerCase();
+      var ext = String(data.externalId || '').trim().replace(/^0+/, '');
+      return TIENDAS_RC_MASIVO.indexOf(tienda) !== -1 && ext !== '' && ext.charAt(0) !== '7';
     }
 
     function escaparHtml(v) {
