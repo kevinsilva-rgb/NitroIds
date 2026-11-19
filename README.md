@@ -116,7 +116,8 @@ cantidadSolicitada, cantidadRecibida }] }] }] }`.
   `CLOSED_ZERO_DELIVERY` no salga verde); verde si contiene `SENT`, `DELIVERY` o `COMPLETED`; ámbar
   en cualquier otro caso (ej. `AT_STORE`).
 - `cantidadRecibida` vacía o "N/A" se muestra como `0`.
-- **RC por masivo (Kevin, 2026-11-08):** en **Granjas, Portales Norte, Campestre y Zedec** (`TIENDAS_RC_MASIVO`,
+- **RC por masivo (Kevin, 2026-11-08; desde 2026-11-19 sin Granjas ni Portales Norte, que vuelven a ver el ID):** en
+  **Campestre y Zedec** (`TIENDAS_RC_MASIVO`,
   comparado con el campo `tienda` del backend) las órdenes **RC** —External ID que no inicia con 7, sin contar ceros
   a la izquierda— no muestran el ID Nitro ni el botón Copiar: la tarjeta avisa que lo de RC se carga por masivo
   (ver `Dash-RC-Masivo`) y que no se ingrese en esa orden. RL (inician con 7), transferencias y demás tiendas, sin

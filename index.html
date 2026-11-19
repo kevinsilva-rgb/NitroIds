@@ -124,7 +124,8 @@
     // Kevin (2026-11-08): en estas tiendas lo que llega de RC se carga por masivo (Dash-RC-Masivo), asi que el buscador
     // no muestra el ID Nitro de sus ordenes RC (External ID que no inicia con 7, sin contar ceros a la izquierda).
     // Las RL (inician con 7) y las transferencias se muestran normal. Nombres = campo "tienda" del backend.
-    const TIENDAS_RC_MASIVO = ['granjas', 'portales norte', 'campestre', 'zedec'];
+    // Kevin (2026-11-19): Granjas y Portales Norte vuelven a ver el ID Nitro de sus ordenes RC.
+    const TIENDAS_RC_MASIVO = ['campestre', 'zedec'];
     var datosHielo = null;
     var fotosTicket = {};      // clave de tarjeta ('h0' modulo hielo, 'b0' buscador) -> { base64, mimeType }
     var contextosTicket = {};  // clave de tarjeta -> { tienda, proveedor, orden } que viaja con la foto
